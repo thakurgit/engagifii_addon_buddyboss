@@ -19,7 +19,7 @@
 
 // Exit if accessed directly
 defined( 'ABSPATH' ) || exit;
-
+define('BB_ENGAGIFII_VERSION','1.0.1');
 if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 
 	/**
@@ -201,16 +201,6 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 	//plugin update check
 	add_filter('pre_set_site_transient_update_plugins', 'check_for_plugin_update');
 function check_for_plugin_update($transient) {
-	
-    // Only check for updates if we're not in the admin area
-    if (is_admin()) {
-        return $transient;
-    }
-
-    // Get the current version of the plugin
-    $current_version = '1.0.1'; // Update this to your current version
-
-    // Fetch the update information from your JSON file
     $response = wp_remote_get('https://engagifiiweb.com/engagifii_plugins/engagifii_addon_buddyboss/plugin-update.json');
 
     if (is_wp_error($response)) {
@@ -220,7 +210,7 @@ function check_for_plugin_update($transient) {
     $data = json_decode(wp_remote_retrieve_body($response)); 
 
     // Check if there's a new version available
-    if (version_compare($current_version, $data->version, '<')) {
+    if (version_compare(BB_ENGAGIFII_VERSION, $data->version, '<')) {
         $transient->response[plugin_basename(__FILE__)] = (object) array(
             'slug' => 'engagifii_addon_buddyboss', //plugin folder name
             'plugin' => plugin_basename(__FILE__),

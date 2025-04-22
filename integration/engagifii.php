@@ -58,19 +58,20 @@ function my_custom_cron_function() {
 		  $option['api']['tenant'] = 0;
 	  }
 	  $option['api']['tenant']++;
+	  $option['cron']['cron_logs'] = '<p>Tenant cron executed at <b>' . current_time('mysql') . '</b></p>' . $option['cron']['cron_logs'];
 	  update_option('bb_engagifii', $option);
 }
 add_action('my_custom_cron_hook', 'my_custom_cron_function');
 
 //custom cron manually run
- function run_custom_cron_event() {
+ function run_custom_cron_event() {  
     if ( ! current_user_can( 'manage_options' ) ) {
         wp_send_json_error( 'Unauthorized access' );
     }
     do_action( 'my_custom_cron_hook' );
     wp_send_json_success( 'Cron event executed successfully!' );
 }
-add_action( 'wp_ajax_run_custom_cron_event', 'run_custom_cron_event' );  
+add_action( 'wp_ajax_run_custom_cron_event', 'run_custom_cron_event' );
 
 /*function delete_my_cron_event() {
     $timestamp = wp_next_scheduled('my_custom_cron_hook');
@@ -79,7 +80,7 @@ add_action( 'wp_ajax_run_custom_cron_event', 'run_custom_cron_event' );
     }
 }
 add_action('init', 'delete_my_cron_event');
-do_action('my_custom_cron_hook');*/
+do_action('my_custom_cron_hook'); */
 
 
 /* if ( ! defined('BP_AVATAR_THUMB_WIDTH') ) {

@@ -14,3 +14,12 @@ It is required for adding icons to your admin settings.
 	background-image: url('images/feather.svg');
 	background-size: 18px 18px;
 }
+.cron-logs {
+border: 1px solid #ccc;
+-webkit-border-radius: 5px;
+-moz-border-radius: 5px;
+border-radius: 5px;
+padding: 10px;
+height: 200px;
+overflow-y:auto;	
+}

@@ -22,6 +22,10 @@ if ( ! function_exists( 'engagifii_get_settings_sections' ) ) {
 				'page'  => 'bp-engagifii_settings',
 				'title' => __( 'API Settings', 'engagifii-addon' ),
 			),
+			'engagifii_cron_logs' => array(
+				'page'  => 'bp-engagifii_settings',
+				'title' => __( 'Engagifii Cron Logs', 'engagifii-addon' ),
+			), 
 			
 			
 		);
@@ -92,6 +96,14 @@ if ( ! function_exists( 'engagifii_get_settings_fields' ) ) {
 		),
 	),
 	);
+	$fields['engagifii_cron_logs'] = array(
+		  'bb_engagifii_cron_logs' => array(
+		  'title'             => __( 'Cron Logs', 'engagifii-addon' ),
+		  'callback'          => 'engagifii_cron_logs_callback',
+		  'sanitize_callback' => 'sanitize_text_or_array_field',
+		  'args'              => array(),
+	),
+	);
 			
 		return (array) apply_filters( 'engagifii_get_settings_fields', $fields );
 	}
@@ -111,10 +123,13 @@ if ( ! function_exists( 'engagifii_api_settings_callback' ) ) {
 	echo '<input type="text" id="' . esc_attr( $key ) . '" name="bb_engagifii[api][' . esc_attr( $key ) . ']" value="' . esc_attr( $value ) . '" class="regular-text" />';
 	if($key=='tenant'){
 	 $last_execution = get_option('engagifii_cron_last_execution', 'No execution recorded yet.');
-echo "Last cron execution: " .date('F j, Y H:i:s', strtotime($last_execution)).'<br/>';
+echo "<br>Last cron execution: " .date('F j, Y H:i:s', strtotime($last_execution)).'<br/>';
 $timestamp = wp_next_scheduled('my_custom_cron_hook');
 if ($timestamp) {
-    echo "Next cron execution: " .date("F j, Y H:i:s", $timestamp).'<br>';
+    $offset = get_option('gmt_offset') * HOUR_IN_SECONDS;
+    $local_time = $timestamp + $offset;
+    echo "Next cron execution: " . date('F j, Y H:i:s', $local_time) . '<br>';
+    echo "Current Time is: " . current_time('F j, Y H:i:s').'<br>';
     $remaining = $timestamp - time();
     if ($remaining > 0) {
         $hours = floor($remaining / 3600);
@@ -126,7 +141,7 @@ if ($timestamp) {
     }
 } else {
     echo "Cron job is not scheduled.";
-} 
+}  
 ?>
 <button id="run-cron-event" class="button button-primary">Run Cron</button>
 <p id="cron-status"></p>
@@ -158,7 +173,10 @@ if ( ! function_exists( 'engagifii_is_addon_field_enabled' ) ) {
 		return (bool) apply_filters( 'engagifii_is_addon_field_enabled', (bool) get_option( 'engagifii_field', $default ) );
 	}
 }
-
+function engagifii_cron_logs_callback( $args ) {
+	$logs = get_option( 'bb_engagifii' )['cron']['cron_logs'];
+	echo '<div class="cron-logs">'.$logs.'</div>';
+}
 /***************************** Add section in current settings ***************************************/
 
 /**
