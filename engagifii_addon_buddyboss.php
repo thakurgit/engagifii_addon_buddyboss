@@ -5,7 +5,7 @@
  * Description: Engagifii plugin to fetch data into BuddyBoss Platform.
  * Author:      Engagifii
  * Author URI:  https://engagifii.com/
- * Version:     1.0.1
+ * Version:     1.0.2
  * Text Domain: engagifii-addon
  * Domain Path: /languages/
  * License:     GPLv3 or later (license.txt)
@@ -19,7 +19,7 @@
 
 // Exit if accessed directly
 defined( 'ABSPATH' ) || exit;
-define('BB_ENGAGIFII_VERSION','1.0.1');
+define('BB_ENGAGIFII_VERSION','1.0.2');
 if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 
 	/**

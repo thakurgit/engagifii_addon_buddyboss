@@ -2,7 +2,6 @@
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
 
-
 function bb_engagifii_form_submission() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bb_engagifii'])) {
 		if (!current_user_can('manage_options')) {
@@ -100,8 +99,9 @@ do_action('my_custom_cron_hook'); */
     }
 
 function jwt_token(){
+$bb_engagifii= get_option('bb_engagifii');
   $url = home_url("/wp-json/jwt-auth/v1/token");
-  $data = ["username" => "crescommunity", "password" => "uVi5 2ctv uxFp UcwB tan2 j0ky"];
+  $data = ["username" => $bb_engagifii['jwt']['username'], "password" => $bb_engagifii['jwt']['app_password']];
   $ch = curl_init($url);
   curl_setopt($ch, CURLOPT_POST, true);
   curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -150,20 +150,19 @@ function upload_avatar_from_remote_url( $user_id, $image_url ) {
     return $response;
 
 }
-//add_action('plugins_loaded', function() {
-	add_action('engagifii_sso_authenticated', 'auto_upload_avatar_for_new_user', 10, 2);
-//});
+add_action('engagifii_sso_authenticated', 'auto_upload_avatar_for_new_user', 10, 2);
 function auto_upload_avatar_for_new_user( $user_id, $token_data ) {
+$bb_engagifii= get_option('bb_engagifii');
 	$access_token = isset($_COOKIE['access_token']) ? $_COOKIE['access_token'] : null;
     if (empty($access_token)) {
         $access_token = $token_data;
     }
   if ($access_token) {
-    $response = wp_remote_post('https://builtin-crm.azurewebsites.net/api/v1/People/GetLoggedInUserDetailWithFields', [
+    $response = wp_remote_post($bb_engagifii['api']['api_url'], [
         'headers' => [
             'Authorization' => 'Bearer ' . $access_token,
             'accept'        => 'application/json',
-            'tenant-code'   => 'engagifii',
+            'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
             'Content-Type'  => 'application/json-patch+json'
         ],
         'body'    => json_encode([
@@ -171,26 +170,61 @@ function auto_upload_avatar_for_new_user( $user_id, $token_data ) {
             'fieldIds' => [] 
         ])
     ]);
-
     if (is_wp_error($response)) {
         echo 'Error: ' . $response->get_error_message();
     } else {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
-		$dp = $data['people']['imageThumbUrl'];
 		$user_id = isset($user_id) ? $user_id : get_current_user_id();
-		/* wp_update_user( [
+		$dp = $data['people']['imageThumbUrl'];
+		$firstName = $data['people']['firstName'];
+		$lastName = $data['people']['lastName'];
+		$display_name = $firstName.' '.$lastName;
+		$nickname = $firstName.'_'.$lastName;
+		$phoneNo = $data['people']['primaryPhoneNumber']['value'];
+		$org = $data['people']['primaryOrganization']['name'];
+		$dp = $data['people']['imageThumbUrl'];
+		 wp_update_user( [
 			'ID'         => $user_id,
-			'first_name' => $dp 
-		] );*/
-		//echo $user_id;
+			'first_name' => $firstName, 
+			'last_name' => $lastName, 
+			'display_name' => $display_name, 
+			'nickname' => $nickname, 
+		] );
+		$phone_id = xprofile_get_field_id_from_name('Phone');
+		$org_id = xprofile_get_field_id_from_name('Organization');
+		if($phone_id && $phoneNo){
+		  xprofile_set_field_data($phone_id, $user_id, $phoneNo);
+		}
+		if($org_id && $org){
+		  xprofile_set_field_data($org_id, $user_id, $org);
+		}
     }
 } else {
    // echo 'No access token found.';
 }
-
-    upload_avatar_from_remote_url( $user_id, $dp );
+	if (filter_var($dp, FILTER_VALIDATE_URL)) {
+    	upload_avatar_from_remote_url( $user_id, $dp );
+	}
 } 
+/*function update_all_user_display_names() {
+    $users = get_users();
+
+    foreach ( $users as $user ) {
+        $first_name = get_user_meta( $user->ID, 'first_name', true );
+        $last_name  = get_user_meta( $user->ID, 'last_name', true );
+
+        if ( $first_name && $last_name ) {
+            $display_name = $first_name . ' ' . $last_name;
+
+            wp_update_user( [
+                'ID'           => $user->ID,
+                'display_name' => $display_name,
+            ] );
+        }
+    }
+}
+add_action('init', 'update_all_user_display_names');*/
 ?>
 <?php /*?><script>
 		fetch('<?php echo home_url("wp-json/buddyboss/v1/signup"); ?>', {
