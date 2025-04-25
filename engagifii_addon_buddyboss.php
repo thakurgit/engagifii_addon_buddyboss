@@ -5,7 +5,7 @@
  * Description: Engagifii plugin to fetch data into BuddyBoss Platform.
  * Author:      Engagifii
  * Author URI:  https://engagifii.com/
- * Version:     1.0.2
+ * Version:     1.0.4
  * Text Domain: engagifii-addon
  * Domain Path: /languages/
  * License:     GPLv3 or later (license.txt)
@@ -19,7 +19,7 @@
 
 // Exit if accessed directly
 defined( 'ABSPATH' ) || exit;
-define('BB_ENGAGIFII_VERSION','1.0.2');
+define('BB_ENGAGIFII_VERSION','1.0.4');
 if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 
 	/**
@@ -106,6 +106,7 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 		public function includes() {
 			include_once( 'functions.php' );
 			include_once dirname( __FILE__ ) . '/integration/engagifii.php';
+			require_once dirname( __FILE__ ) . '/integration/updater.php';
 		}
 		
 		private function init_hooks() {		
@@ -198,28 +199,3 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 	
 
 }
-	//plugin update check
-	add_filter('pre_set_site_transient_update_plugins', 'check_for_plugin_update');
-function check_for_plugin_update($transient) {
-    $response = wp_remote_get('https://engagifiiweb.com/engagifii_plugins/engagifii_addon_buddyboss/plugin-update.json');
-
-    if (is_wp_error($response)) {
-        return $transient; // Return if there's an error
-    }
-
-    $data = json_decode(wp_remote_retrieve_body($response)); 
-
-    // Check if there's a new version available
-    if (version_compare(BB_ENGAGIFII_VERSION, $data->version, '<')) {
-        $transient->response[plugin_basename(__FILE__)] = (object) array(
-            'slug' => 'engagifii_addon_buddyboss', //plugin folder name
-            'plugin' => plugin_basename(__FILE__),
-            'new_version' => $data->version,
-            'url' => 'https://engagifiiweb.com/engagifii_plugins/engagifii_addon_buddyboss',
-            'package' => $data->download_url,
-        );
-    }
-
-    return $transient;
-}
-

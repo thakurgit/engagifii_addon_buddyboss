@@ -1,7 +1,6 @@
 <?php
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
-
 function bb_engagifii_form_submission() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bb_engagifii'])) {
 		if (!current_user_can('manage_options')) {
