@@ -1,6 +1,7 @@
 <?php
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
+
 function bb_engagifii_form_submission() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bb_engagifii'])) {
 		if (!current_user_can('manage_options')) {
@@ -206,6 +207,19 @@ $bb_engagifii= get_option('bb_engagifii');
     	upload_avatar_from_remote_url( $user_id, $dp );
 	}
 } 
+function rename_buddyboss_menu_item() {
+    global $menu;
+    $options = get_option('bb_engagifii');
+    if (empty($options['misc']['dash_menu'])) { return; }
+    $bb_dash_menu = $options['misc']['dash_menu'];
+    foreach ($menu as $key => $value) {
+        if ($value[0] == 'BuddyBoss') {
+            $menu[$key][0] = $bb_dash_menu;
+        }
+    }
+} 
+add_action('admin_menu', 'rename_buddyboss_menu_item');
+
 /*function update_all_user_display_names() {
     $users = get_users();
 

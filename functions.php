@@ -22,6 +22,10 @@ if ( ! function_exists( 'engagifii_get_settings_sections' ) ) {
 				'page'  => 'bp-engagifii_settings',
 				'title' => __( 'API Settings', 'engagifii-addon' ),
 			),
+			'engagifii_misc_settings' => array(
+				'page'  => 'bp-engagifii_settings',
+				'title' => __( 'Miscellaneous Settings', 'engagifii-addon' ),
+			),
 			'engagifii_cron_logs' => array(
 				'page'  => 'bp-engagifii_settings',
 				'title' => __( 'Engagifii Cron Logs', 'engagifii-addon' ),
@@ -94,6 +98,14 @@ if ( ! function_exists( 'engagifii_get_settings_fields' ) ) {
 			'key'         => 'app_password',
 			'group'         => 'jwt',
 		),
+	),
+	);
+	$fields['engagifii_misc_settings'] = array(
+		  'bb_engagifii_menu_rename' => array(
+		  'title'             => __( 'Rename Buddyboss Menu', 'engagifii-addon' ),
+		  'callback'          => 'engagifii_misc_callback',
+		  'sanitize_callback' => 'sanitize_text_or_array_field',
+		  'args'              => array(),
 	),
 	);
 	$fields['engagifii_cron_logs'] = array(
@@ -176,6 +188,10 @@ if ( ! function_exists( 'engagifii_is_addon_field_enabled' ) ) {
 function engagifii_cron_logs_callback( $args ) {
 	$logs = get_option( 'bb_engagifii' )['cron']['cron_logs'];
 	echo '<div class="cron-logs">'.$logs.'</div>';
+}
+function engagifii_misc_callback( $args ) {
+	$bb_dash_menu = get_option( 'bb_engagifii' )['misc']['dash_menu'];
+	echo '<input type="text" id="dash_menu" name="bb_engagifii[misc][dash_menu]" value="' . esc_attr( $bb_dash_menu ) . '" class="regular-text" /><p><i>Leave blank for no change.</i></p>';
 }
 /***************************** Add section in current settings ***************************************/
 
