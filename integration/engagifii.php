@@ -1,7 +1,6 @@
 <?php
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
-
 function bb_engagifii_form_submission() {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bb_engagifii'])) {
 		if (!current_user_can('manage_options')) {
@@ -81,6 +80,29 @@ add_action( 'wp_ajax_run_custom_cron_event', 'run_custom_cron_event' );
 add_action('init', 'delete_my_cron_event');
 do_action('my_custom_cron_hook'); */
 
+//Add user meta Person ID in dashboard
+function show_person_id_field($user) {
+    $person_id = esc_attr(get_the_author_meta('person_id', $user->ID));
+    ?>
+    <h3>Custom User Info</h3>
+    <table class="form-table">
+        <tr>
+            <th><label for="person_id">Person ID</label></th>
+            <td>
+                <input type="text" name="person_id" id="person_id" value="<?php echo $person_id; ?>" class="regular-text" readonly />
+                <p class="description">This ID is auto-assigned and cannot be edited.</p>
+            </td>
+        </tr>
+    </table>
+    <?php
+}
+add_action('show_user_profile', 'show_person_id_field');
+add_action('edit_user_profile', 'show_person_id_field'); 
+function prevent_person_id_update($user_id) {
+    unset($_POST['person_id']);
+}
+add_action('personal_options_update', 'prevent_person_id_update');
+add_action('edit_user_profile_update', 'prevent_person_id_update');
 
 /* if ( ! defined('BP_AVATAR_THUMB_WIDTH') ) {
         define('BP_AVATAR_THUMB_WIDTH', 125);
@@ -150,15 +172,26 @@ function upload_avatar_from_remote_url( $user_id, $image_url ) {
     return $response;
 
 }
-add_action('engagifii_sso_authenticated', 'auto_upload_avatar_for_new_user', 10, 2);
-function auto_upload_avatar_for_new_user( $user_id, $token_data ) {
+add_action('engagifii_sso_authenticated', 'fetch_userInfo_newUser', 10, 2);
+function fetch_userInfo_newUser( $user_id, $token_data ) {
 $bb_engagifii= get_option('bb_engagifii');
 	$access_token = isset($_COOKIE['access_token']) ? $_COOKIE['access_token'] : null;
     if (empty($access_token)) {
         $access_token = $token_data;
     }
   if ($access_token) {
-    $response = wp_remote_post($bb_engagifii['api']['api_url'], [
+	  $user_fields_raw = isset($bb_engagifii['user_fields']) ? $bb_engagifii['user_fields'] : '[]';
+	  $user_fields_json = stripslashes($user_fields_raw);
+	  $user_fields_array = json_decode($user_fields_json, true);
+	  $user_fields = [];
+	  $labelIds = [];
+	  if (is_array($user_fields_array)) {
+		foreach ($user_fields_array as $field) {
+		  $user_fields[] = $field['id']; 
+		  $labelIds[$field['label']] = $field['id']; 
+		}
+	  }
+    $response = wp_remote_post($bb_engagifii['api']['crmUrl'].'/People/GetLoggedInUserDetailWithFields', [
         'headers' => [
             'Authorization' => 'Bearer ' . $access_token,
             'accept'        => 'application/json',
@@ -167,7 +200,7 @@ $bb_engagifii= get_option('bb_engagifii');
         ],
         'body'    => json_encode([
             'id' => '',
-            'fieldIds' => [] 
+            'fieldIds' => $user_fields
         ])
     ]);
     if (is_wp_error($response)) {
@@ -181,9 +214,8 @@ $bb_engagifii= get_option('bb_engagifii');
 		$lastName = $data['people']['lastName'];
 		$display_name = $firstName.' '.$lastName;
 		$nickname = $firstName.'_'.$lastName;
-		$phoneNo = $data['people']['primaryPhoneNumber']['value'];
-		$org = $data['people']['primaryOrganization']['name'];
 		$dp = $data['people']['imageThumbUrl'];
+		$pid = $data['people']['id'];
 		 wp_update_user( [
 			'ID'         => $user_id,
 			'first_name' => $firstName, 
@@ -191,14 +223,71 @@ $bb_engagifii= get_option('bb_engagifii');
 			'display_name' => $display_name, 
 			'nickname' => $nickname, 
 		] );
-		$phone_id = xprofile_get_field_id_from_name('Phone');
-		$org_id = xprofile_get_field_id_from_name('Organization');
-		if($phone_id && $phoneNo){
-		  xprofile_set_field_data($phone_id, $user_id, $phoneNo);
+		update_user_meta( $user_id, 'person_id', $pid );
+		$fieldMeta = [];
+		foreach ($data['peopleFields'] as $key => $value) {
+			if($value['id']==$labelIds['Birth Date'] && $value['selectedValue'] ){ 
+				$dob = $value['selectedValue'];
+				$dob_id = xprofile_get_field_id_from_name('Birth Date');
+				if($dob_id && $dob){
+					$dob = date( 'Y-m-d', strtotime( $dob ) );
+					xprofile_set_field_data($dob_id, $user_id, $dob.' 00:00:00');
+					 $fieldMeta[] = [
+						'tabGroupFieldId' => $value['id'],
+						'label' => 'Birth Date',
+						'tabGroupId' => $value['tabGroupId'],
+						'tabId' => $value['tabId']
+					];
+				}
+			} 
+			if($value['id']==$labelIds['Phone'] && $value['selectedValue'] ){ 
+				$phoneNo = $value['selectedValue'];
+				$phone_id = xprofile_get_field_id_from_name('Phone');
+				if($phone_id && $phoneNo){
+					xprofile_set_field_data($phone_id, $user_id, $phoneNo);
+					 $fieldMeta[] = [
+						'tabGroupFieldId' => $value['id'],
+						'label' => 'Phone',
+						'tabGroupId' => $value['tabGroupId'],
+						'tabId' => $value['tabId']
+					];
+				}
+			} 
+			if($value['id']==$labelIds['Organization'] && $value['organizationValue'] ){ 
+				$org = json_decode(stripslashes($value['organizationValue']));
+				$org_id = xprofile_get_field_id_from_name('Organization');
+				$pos_id = xprofile_get_field_id_from_name('Position');
+				$dep_id = xprofile_get_field_id_from_name('Department');
+				if (is_array($org)) {
+					foreach ($org as $orgItem) {
+						if (isset($orgItem->isPrimary) && $orgItem->isPrimary == 1) {
+							$organizationName = $orgItem->name;
+							if (isset($orgItem->positionHistory) && is_array($orgItem->positionHistory)) {
+								foreach ($orgItem->positionHistory as $position) {
+									if (isset($position->isCurrent) && $position->isCurrent == 1) {
+										$positionName = $position->positionName;
+										$departmentName = $position->departmentName;
+										break; 
+									}
+								}
+							}
+							break;
+						}
+					}
+				}
+				if($org_id && $organizationName){
+					xprofile_set_field_data($org_id, $user_id, $organizationName);
+				}
+				if($pos_id && $positionName){
+					xprofile_set_field_data($pos_id, $user_id, $positionName);
+				}
+				if($dep_id && $departmentName){
+					xprofile_set_field_data($dep_id, $user_id, $departmentName);
+				}
+			} 
 		}
-		if($org_id && $org){
-		  xprofile_set_field_data($org_id, $user_id, $org);
-		}
+		$bb_engagifii['user_fields_metadata'] = $fieldMeta;
+		update_option('bb_engagifii', $bb_engagifii);
     }
 } else {
    // echo 'No access token found.';
@@ -207,6 +296,119 @@ $bb_engagifii= get_option('bb_engagifii');
     	upload_avatar_from_remote_url( $user_id, $dp );
 	}
 } 
+//update profile on workspace
+add_action('xprofile_updated_profile', 'profile_update_api_execute', 10, 5);
+function profile_update_api_execute($user_id, $posted_field_ids, $errors, $old_values, $new_values) {
+	$bb_engagifii= get_option('bb_engagifii');
+	$user_fields_metadata=$bb_engagifii['user_fields_metadata'];
+	foreach ($user_fields_metadata as $field) {
+    switch ($field['label']) {
+        case 'Phone':
+            $phoneTabId = $field['tabId'];
+            $phoneTabGroupId = $field['tabGroupId'];
+            $phoneTabGroupFieldId = $field['tabGroupFieldId'];
+            break;
+
+        case 'Birth Date':
+            $dobTabId = $field['tabId'];
+            $dobTabGroupId = $field['tabGroupId'];
+            $dobTabGroupFieldId = $field['tabGroupFieldId'];
+            break;
+
+        case 'Gender':
+            $genderTabId = $field['tabId'];
+            $genderTabGroupId = $field['tabGroupId'];
+            $genderTabGroupFieldId = $field['tabGroupFieldId'];
+            break;
+
+        case 'Organization':
+            $orgTabId = $field['tabId'];
+            $orgTabGroupId = $field['tabGroupId'];
+            $orgTabGroupFieldId = $field['tabGroupFieldId'];
+            break;
+    }
+}
+	$access_token = isset($_COOKIE['access_token']) ? $_COOKIE['access_token'] : null;
+ if ($access_token) {
+	 $user_id = get_current_user_id();
+	 $user = get_userdata($user_id);
+	 if(empty($user->person_id)) {
+		return ;
+	 }
+	  $firstName = 'field_'.xprofile_get_field_id_from_name('First Name');
+	  $lastName = 'field_'.xprofile_get_field_id_from_name('Last Name');
+	  $phone = 'field_'.xprofile_get_field_id_from_name('Phone');
+	  $dob = 'field_'.xprofile_get_field_id_from_name('Birth Date');
+	 $fields_to_update = [
+    [
+        'headerFieldName' => 'firstName',
+        'oldValue' => $user->first_name,
+        'newValue' => $_POST[$firstName],
+		'isHeader'  => true
+    ],
+    [
+        'headerFieldName' => 'lastName',
+        'oldValue' => $user->last_name,
+        'newValue' => $_POST[$lastName],
+		'isHeader'  => true
+    ],
+	[
+        'oldValue' => xprofile_get_field_data(xprofile_get_field_id_from_name('Phone'), $user_id),
+        'newValue' => $_POST[$phone],
+		'tabId'    => $phoneTabId,
+		'tabGroupId'    => $phoneTabGroupId,
+		'tabGroupFieldId'    => $phoneTabGroupFieldId,
+		'primary'  => true
+    ],
+	[
+        'oldValue' => "",
+        'newValue' => date('m/d/Y', strtotime($_POST[$dob.'_month'].' '.$_POST[$dob.'_day'].' '.$_POST[$dob.'_year'])),
+		'tabId'    => $dobTabId,
+		'tabGroupId'    => $dobTabGroupId,
+		'tabGroupFieldId'    => $dobTabGroupFieldId,
+    ],
+];
+$body = [];
+foreach ($fields_to_update as $field) {
+    if ($field['oldValue'] !== $field['newValue']) {
+        $body[] = [
+            'tabId'               => isset($field['tabId']) ? $field['tabId'] : null,
+            'tabGroupId'          => isset($field['tabGroupId']) ? $field['tabGroupId'] : null,
+            'tabGroupFieldId'     => isset($field['tabGroupFieldId']) ? $field['tabGroupFieldId'] : null,
+            'loggedInUserId'      => $user->person_id,
+            'profileUserId'       => $user->person_id,
+            'isHeader'            => isset($field['isHeader']) ? $field['isHeader'] : false,
+            'headerFieldName'     => isset($field['headerFieldName']) ? $field['headerFieldName'] : '',
+            'smartDropDownRequest'=> '',
+            'fieldChangeValues'   => [
+                [
+                    'oldValue' => $field['oldValue'],
+                    'newValue' => $field['newValue'],
+                    'primary'  => isset($field['primary']) ? $field['primary'] : false,
+                ]
+            ],
+            'isValueChanged'      => false
+        ];
+    }
+}
+    $response = wp_remote_post($bb_engagifii['api']['doUrl'].'PeopleApproval/CreateRequest', [
+        'headers' => [
+            'Authorization' => 'Bearer ' . $access_token,
+            'accept'        => 'application/json',
+            'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
+            'Content-Type'  => 'application/json'
+        ],
+        'body' => json_encode($body),
+    ]);
+    if (is_wp_error($response)) {
+        error_log('API request failed: ' . $response->get_error_message());
+    } else {
+		
+	}
+ }
+}
+
+//rename buddyboss menu
 function rename_buddyboss_menu_item() {
     global $menu;
     $options = get_option('bb_engagifii');
@@ -239,26 +441,8 @@ add_action('admin_menu', 'rename_buddyboss_menu_item');
 }
 add_action('init', 'update_all_user_display_names');*/
 ?>
-<?php /*?><script>
-		fetch('<?php echo home_url("wp-json/buddyboss/v1/signup"); ?>', {
-    method: 'POST',
-    headers: {
-		 'Content-Type': 'application/json',
-        'Authorization': 'Bearer <?php echo $data['token'];?>'
-    },
-	 body: JSON.stringify({
-    signup_email: "prakash_@Outlook.in",
-    signup_password: "techadmin",
-	field_3:'thakurx',
-field_1:"prakash",
-field_2:"thakur"
-  })
-})
-.then(response => {
-    console.log('Response Status:', response.status); // Log the status code
-    return response.json();
-})
-.then(data => console.log(data))
-.catch(error => console.error('Error:', error));
-		</script><?php */?>
+
+        
+        
+        
 
