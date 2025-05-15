@@ -25,7 +25,11 @@ if ( ! function_exists( 'engagifii_get_settings_sections' ) ) {
 			),
 			'engagifii_fields_settings' => array(
 				'page'  => 'bp-engagifii_settings',
-				'title' => __( 'Fields Settings', 'engagifii-addon' ),
+				'title' => __( 'Member Fields Settings', 'engagifii-addon' ),
+			),
+			'engagifii_hubs_settings' => array(
+				'page'  => 'bp-engagifii_settings',
+				'title' => __( 'Hubs Settings', 'engagifii-addon' ),
 			),
 			'engagifii_misc_settings' => array(
 				'page'  => 'bp-engagifii_settings',
@@ -92,6 +96,17 @@ if ( ! function_exists( 'engagifii_get_settings_fields' ) ) {
 				'args'              => array(
 					  'key'         => 'engagifii_fields',
 					  'group'         => 'user_fields',
+				  ),
+			), 
+		);
+		$fields['engagifii_hubs_settings'] = array(
+			'bb_engagifii_hubs' => array(
+				'title'             => __( 'Member Hubs Sync', 'engagifii-addon' ),
+				'callback'          => 'engagifii_hubs_settings_callback',
+				'sanitize_callback' => '',
+				'args'              => array(
+					  'key'         => 'engagifii_hubs',
+					  'group'         => 'hubs',
 				  ),
 			), 
 		);
@@ -226,6 +241,26 @@ if ($timestamp) {
 		<?php
 		}
 
+	}
+}
+if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
+	function engagifii_hubs_settings_callback($args ) {
+		$key     = $args['key'];
+	$options = get_option( 'bb_engagifii' ); ?>
+	<button id="fetch-hubs" class="button button-primary">Fetch Hubs</button>
+<p id="fetch-hub-status"></p>
+<script type="text/javascript">
+    jQuery(document).ready(function($) {
+    $('#fetch-hub-status').click(function(event) {
+        event.preventDefault(); // Prevent page reload
+       $(this).prop('disabled', true).text('Running...'); // Disable button while running
+        
+       
+		
+    });
+});
+</script>
+<?php		
 	}
 }
 if ( ! function_exists( 'engagifii_fields_settings_callback' ) ) {

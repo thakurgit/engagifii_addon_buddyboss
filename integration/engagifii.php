@@ -422,6 +422,22 @@ function rename_buddyboss_menu_item() {
 } 
 add_action('admin_menu', 'rename_buddyboss_menu_item');
 
+
+add_action('bp_after_group_details_admin', function() {
+    $group_id = bp_get_current_group_id();
+    $group_id_value = groups_get_groupmeta($group_id, 'custom_group_id', true);
+
+   // if (!$group_id_value) return; // safety check
+
+    ?>
+    <div class="custom-group-id-field">
+        <label for="custom_group_id"><strong>Group ID:</strong></label><br>
+        <input type="text" id="custom_group_id" value="<?php echo esc_attr($group_id_value); ?>" readonly style="width: 300px;">
+    </div>
+    <br>
+    <?php
+});
+
 /*function update_all_user_display_names() {
     $users = get_users();
 
