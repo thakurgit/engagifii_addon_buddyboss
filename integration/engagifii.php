@@ -422,21 +422,38 @@ function rename_buddyboss_menu_item() {
 } 
 add_action('admin_menu', 'rename_buddyboss_menu_item');
 
-
-add_action('bp_after_group_details_admin', function() {
-    $group_id = bp_get_current_group_id();
-    $group_id_value = groups_get_groupmeta($group_id, 'custom_group_id', true);
-
-   // if (!$group_id_value) return; // safety check
-
-    ?>
-    <div class="custom-group-id-field">
-        <label for="custom_group_id"><strong>Group ID:</strong></label><br>
-        <input type="text" id="custom_group_id" value="<?php echo esc_attr($group_id_value); ?>" readonly style="width: 300px;">
-    </div>
-    <br>
-    <?php
-});
+add_action( 'bp_groups_admin_meta_boxes', 'bb_engagifii_hubId_metabox' );
+function bb_engagifii_hubId_metabox() {	
+	add_meta_box( 
+		'bb_engagifii_hub_id',
+		'Hub ID', 
+		'hubID_render_admin_metabox', 
+		get_current_screen()->id, 
+		'normal', 
+		'core'
+	);
+}  
+function hubID_render_admin_metabox() {
+	if ( ! isset( $_GET['gid'] ) ) {
+		echo 'Group ID not found.';
+		return;
+	}
+	$group_id = intval( $_GET['gid'] );
+	$hub_id = groups_get_groupmeta( $group_id, 'hub_id', true );
+	/*if ( empty( $hub_id ) ) {
+		$hub_id = 'HUB-' . strtoupper( wp_generate_password( 8, false, false ) );
+		groups_update_groupmeta( $group_id, 'hub_id', $hub_id );
+	}*/
+	?> 
+	<div class="bp-groups-settings-section" id="bp-groups-settings-section-hub-id">
+		<fieldset>
+			<legend>Hub ID</legend>
+			<input type="text" readonly value="<?php echo esc_attr( $hub_id ); ?>" style="width:300px" />
+			<p class="description">This Hub ID is auto-generated and cannot be changed.</p>
+		</fieldset>
+	</div>
+	<?php
+}
 
 /*function update_all_user_display_names() {
     $users = get_users();

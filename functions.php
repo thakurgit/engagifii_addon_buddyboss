@@ -244,24 +244,199 @@ if ($timestamp) {
 	}
 }
 if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
-	function engagifii_hubs_settings_callback($args ) {
-		$key     = $args['key'];
-	$options = get_option( 'bb_engagifii' ); ?>
-	<button id="fetch-hubs" class="button button-primary">Fetch Hubs</button>
-<p id="fetch-hub-status"></p>
-<script type="text/javascript">
+  function engagifii_hubs_settings_callback( $args ) {
+    $nonce = wp_create_nonce('fetch_hubs_nonce');
+    $options = get_option('bb_engagifii');
+    $timezone_string = get_option('timezone_string') ?: 'UTC';
+    $wp_timezone = new DateTimeZone($timezone_string);
+    $last_fetched = $options['hubs_last_fetched'] ?? null;
+
+    $formatted_time = 'Never fetched';
+    if ($last_fetched) {
+      $dt = new DateTime("@$last_fetched"); // Use timestamp
+      $dt->setTimezone($wp_timezone);
+      $formatted_time = $dt->format('M d, Y h:i:s A');
+    }
+
+    echo '<button id="fetch-hubs" class="button button-primary">Fetch Hubs</button>';
+    echo '<p id="fetch-hub-status"><strong>Last fetched:</strong> ' . esc_html($formatted_time) . '</p>';
+    ?>
+    <script type="text/javascript">
     jQuery(document).ready(function($) {
-    $('#fetch-hub-status').click(function(event) {
-        event.preventDefault(); // Prevent page reload
-       $(this).prop('disabled', true).text('Running...'); // Disable button while running
-        
-       
-		
+      const wpTimezone = '<?php echo esc_js($timezone_string); ?>';
+      $('#fetch-hubs').on('click', function(e) {
+        e.preventDefault();
+
+        var $button = $(this);
+        var $status = $('#fetch-hub-status');
+        var originalText = $button.text();
+
+        $button.prop('disabled', true).text('Processing...');
+        $status.text('Fetching groups from API...');
+
+        $.post(ajaxurl, {
+          action: 'engagifii_hubs_fetch',
+          security: '<?php echo esc_js($nonce); ?>'
+        }, function(response) {
+          const now = new Date();
+          const formatter = new Intl.DateTimeFormat('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZone: wpTimezone
+          });
+          const formattedTime = formatter.format(now);
+
+          if (response.success) {
+            // Show progress messages one by one with small delay for UX
+            let statuses = response.data.statuses || [];
+            let i = 0;
+            function showNextStatus() {
+              if (i < statuses.length) {
+                $status.html(statuses[i]);
+                i++;
+                setTimeout(showNextStatus, 200);
+              } else {
+                $status.html('✅ Completed.<br><strong>Last fetched:</strong> ' + formattedTime);
+                $button.prop('disabled', false).text(originalText);
+              }
+            }
+            showNextStatus();
+          } else {
+            $status.html('❌ Fetch failed: ' + response.data.error + '<br><strong>Last attempt:</strong> ' + formattedTime);
+            $button.prop('disabled', false).text(originalText);
+          }
+        });
+      });
     });
-});
-</script>
-<?php		
-	}
+    </script>
+    <?php
+  }
+}
+
+// AJAX handler
+add_action('wp_ajax_engagifii_hubs_fetch', 'handle_engagifii_hubs_fetch');
+
+function handle_engagifii_hubs_fetch() {
+  check_ajax_referer('fetch_hubs_nonce', 'security');
+
+  $statuses = [];
+  $statuses[] = 'Fetching groups from API...';
+
+  $options = get_option('bb_engagifii');
+  $access_token = $_COOKIE['access_token'] ?? null;
+
+  if (!$access_token) {
+    wp_send_json_error(['error' => 'Access token missing.']);
+  }
+
+  $response = wp_remote_post($options['api']['crmUrl'] . '/groups/list', [
+    'headers' => [
+      'Authorization' => 'Bearer ' . $access_token,
+      'accept'        => 'application/json',
+      'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
+      'Content-Type'  => 'application/json',
+    ],
+    'body' => json_encode([
+      "itemCount"     => 100,
+      "sortBy"        => "",
+      "sortDirection" => "",
+      "pageNumber"    => 1,
+      "filterBody"    => [
+        "searchText"    => "",
+        "selectedDate"  => "",
+        "pageNumber"    => 1,
+        "pageSize"      => 10
+      ]
+    ])
+  ]);
+
+  if (is_wp_error($response)) {
+    wp_send_json_error(['error' => $response->get_error_message()]);
+  }
+
+  $statuses[] = 'Groups fetched. Creating groups in WordPress...';
+
+  $inserted_groups = [];
+  $body = stripslashes(wp_remote_retrieve_body($response));
+  $items = json_decode($body, true)['result'] ?? [];
+
+  foreach ($items as $item) {
+    $group = $item['groupView'] ?? [];
+    if (empty($group['title']) || empty($group['id'])) continue;
+
+    $group_name = sanitize_text_field($group['title']);
+    $group_desc = sanitize_text_field($group['description'] ?? 'Group Description goes here');
+    $hub_id = sanitize_text_field($group['id']);
+
+    $existing = groups_get_groups([
+      'meta_query' => [[
+        'key' => 'hub_id',
+        'value' => $hub_id,
+        'compare' => '='
+      ]]
+    ]);
+    if (!empty($existing['groups'])) continue;
+
+    $creator_id = null; // start null
+
+	  if (!empty($group['groupOwnersPeopleIds']) && is_array($group['groupOwnersPeopleIds'])) {
+		foreach ($group['groupOwnersPeopleIds'] as $person_id) {
+		  $user_query = new WP_User_Query([
+			'meta_key' => 'person_id',
+			'meta_value' => $person_id,
+			'number' => 1,
+			'fields' => ['ID']
+		  ]);
+		  if (!empty($user_query->results)) {
+			$creator_id = $user_query->results[0]->ID;
+			break;
+		  }
+		}
+	  }
+	  
+	  // fallback to user with email 'admin@crescerance.com' if creator_id still null
+	  if (empty($creator_id)) {
+		$admin_user = get_user_by('email', 'admin@crescerance.com');
+		if ($admin_user) {
+		  $creator_id = $admin_user->ID;
+		} else {
+		  $creator_id = 1; // ultimate fallback
+		}
+	  }
+
+    $payload = [
+      'name'        => $group_name,
+      'description' => $group_desc,
+      'status'      => 'public',
+      'creator_id'  => $creator_id,
+    ];
+
+    $statuses[] = 'Creating group: ' . esc_html($group_name);
+
+    $bb_response = wp_remote_post(site_url('/wp-json/buddyboss/v1/groups'), [
+      'headers' => [
+        'Authorization' => 'Bearer ' . jwt_token(),
+        'Content-Type' => 'application/json',
+      ],
+      'body' => json_encode($payload),
+    ]);
+    $group_result = json_decode(wp_remote_retrieve_body($bb_response), true);
+
+    if (!empty($group_result['id'])) {
+      $inserted_groups[] = $group_result['id'];
+      groups_update_groupmeta($group_result['id'], 'hub_id', $hub_id);
+    }
+  }
+
+  // Save last fetched time
+  $options['hubs_last_fetched'] = time();
+  update_option('bb_engagifii', $options);
+
+  wp_send_json_success(['statuses' => $statuses]);
 }
 if ( ! function_exists( 'engagifii_fields_settings_callback' ) ) {
 	function engagifii_fields_settings_callback($args ) {
