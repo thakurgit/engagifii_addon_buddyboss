@@ -454,8 +454,51 @@ function hubID_render_admin_metabox() {
 	</div>
 	<?php
 }
+ add_action('rest_api_init', function () {
+    register_rest_route('engagifii/v1', '/sync_member/', array(
+    array(
+        'methods' => 'POST',
+        'callback' => 'handle_sync_member',
+        'permission_callback' => '__return_true',
+    ),
+    array(
+        'methods' => 'GET',
+        'callback' => function() {
+            return new WP_REST_Response(['message' => 'Sync Member Endpoint is active. Use POST to send data.'], 200);
+        },
+        'permission_callback' => '__return_true',
+    ),
+));
+});
 
-/*function update_all_user_display_names() {
+function handle_sync_member($request) { 
+
+    $params = $request->get_json_params();
+
+    // Example data (customize based on what the API sends)
+    $email = sanitize_email($params['email']);
+    $new_name = sanitize_text_field($params['name']);
+   // $phone = sanitize_text_field($params['phone']);
+
+    $user = get_user_by('email', $email);
+
+    if ($user) {
+        // Update user core fields
+        wp_update_user(array(
+            'ID' => $user->ID,
+            'first_name' => $new_name,
+        ));
+
+        // Update user meta fields
+       // update_user_meta($user->ID, 'phone', $phone);
+
+        return new WP_REST_Response(['status' => 'updated'], 200);
+    }
+
+    return new WP_REST_Response(['status' => 'user not found'], 404);
+}
+
+/* function update_all_user_display_names() {
     $users = get_users();
 
     foreach ( $users as $user ) {
