@@ -259,7 +259,7 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
     }
 
     echo '<button id="fetch-hubs" class="button button-primary">Fetch Hubs</button>';
-    echo '<p id="fetch-hub-status"><strong>Last fetched:</strong> ' . esc_html($formatted_time) . '</p>';
+    echo '<p id="fetch-hub-status" class="cron-logs"><strong>Last fetched:</strong> ' . esc_html($formatted_time) . '</p>';
     ?>
     <script type="text/javascript">
     jQuery(document).ready(function($) {
@@ -272,7 +272,7 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
         var originalText = $button.text();
 
         $button.prop('disabled', true).text('Processing...');
-        $status.text('Fetching groups from API...');
+		 $status.empty().prepend('<div>Fetching groups from API... (It may take upto few minutes)</div>');
 
         $.post(ajaxurl, {
           action: 'engagifii_hubs_fetch',
@@ -296,11 +296,11 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
             let i = 0;
             function showNextStatus() {
               if (i < statuses.length) {
-                $status.html(statuses[i]);
+                $status.prepend('<div>' + statuses[i] + '</div>');
                 i++;
                 setTimeout(showNextStatus, 200);
               } else {
-                $status.html('✅ Completed.<br><strong>Last fetched:</strong> ' + formattedTime);
+                $status.prepend('<div>✅ Completed.<br><strong>Last fetched:</strong> ' + formattedTime + '</div>');
                 $button.prop('disabled', false).text(originalText);
               }
             }
@@ -323,9 +323,7 @@ add_action('wp_ajax_engagifii_hubs_fetch', 'handle_engagifii_hubs_fetch');
 function handle_engagifii_hubs_fetch() {
   check_ajax_referer('fetch_hubs_nonce', 'security');
 
-  $statuses = [];
-  $statuses[] = 'Fetching groups from API...';
-
+  $statuses = ['Fetching groups from API...'];
   $options = get_option('bb_engagifii');
   $access_token = $_COOKIE['access_token'] ?? null;
 
@@ -346,7 +344,7 @@ function handle_engagifii_hubs_fetch() {
       "sortDirection" => "",
       "pageNumber"    => 1,
       "filterBody"    => [
-        "searchText"    => "",
+        "searchText"    => "clients",
         "selectedDate"  => "",
         "pageNumber"    => 1,
         "pageSize"      => 10
@@ -358,7 +356,7 @@ function handle_engagifii_hubs_fetch() {
     wp_send_json_error(['error' => $response->get_error_message()]);
   }
 
-  $statuses[] = 'Groups fetched. Creating groups in WordPress...';
+  $statuses[] = 'Groups fetched. Creating hubs in WordPress...';
 
   $inserted_groups = [];
   $body = stripslashes(wp_remote_retrieve_body($response));
@@ -369,8 +367,9 @@ function handle_engagifii_hubs_fetch() {
     if (empty($group['title']) || empty($group['id'])) continue;
 
     $group_name = sanitize_text_field($group['title']);
-    $group_desc = sanitize_text_field($group['description'] ?? 'Group Description goes here');
+    $group_desc = sanitize_text_field($group['description'] ?? 'Hub Description goes here');
     $hub_id = sanitize_text_field($group['id']);
+    $hub_thumbnail = sanitize_text_field($group['imageThumbUrl']);
 
     $existing = groups_get_groups([
       'meta_query' => [[
@@ -381,32 +380,50 @@ function handle_engagifii_hubs_fetch() {
     ]);
     if (!empty($existing['groups'])) continue;
 
-    $creator_id = null; // start null
+    $statuses[] = 'Creating group: ' . esc_html($group_name);
 
-	  if (!empty($group['groupOwnersPeopleIds']) && is_array($group['groupOwnersPeopleIds'])) {
-		foreach ($group['groupOwnersPeopleIds'] as $person_id) {
-		  $user_query = new WP_User_Query([
-			'meta_key' => 'person_id',
-			'meta_value' => $person_id,
-			'number' => 1,
-			'fields' => ['ID']
-		  ]);
-		  if (!empty($user_query->results)) {
-			$creator_id = $user_query->results[0]->ID;
-			break;
-		  }
-		}
-	  }
-	  
-	  // fallback to user with email 'admin@crescerance.com' if creator_id still null
-	  if (empty($creator_id)) {
-		$admin_user = get_user_by('email', 'admin@crescerance.com');
-		if ($admin_user) {
-		  $creator_id = $admin_user->ID;
-		} else {
-		  $creator_id = 1; // ultimate fallback
-		}
-	  }
+    $group_owner_ids = [];
+    $creator_id = null;
+
+    if (!empty($group['groupOwners']) && is_array($group['groupOwners'])) {
+      foreach ($group['groupOwners'] as $owner) {
+        if (empty($owner['email'])) continue;
+
+        $user = get_user_by('email', $owner['email']);
+
+        if (!$user) {
+          $username = generate_unique_username($owner['firstName'] = '', $owner['lastName'] = '', $owner['email']);
+          $user_id = wp_insert_user([
+            'user_login' => $username,
+            'user_email' => sanitize_email($owner['email']),
+            'user_pass'  => wp_generate_password(),
+          ]);
+
+          if (is_wp_error($user_id)) {
+            $statuses[] = '❌ Failed to create user for email ' . esc_html($owner['email']) . ': ' . $user_id->get_error_message();
+            continue;
+          }
+
+          $user = get_user_by('ID', $user_id);
+          if (!empty($owner['id'])) {
+            update_user_meta($user_id, 'person_id', sanitize_text_field($owner['id']));
+          }
+
+          do_action('engagifii_sso_authenticated', $user_id, $access_token );
+          $statuses[] = '✅ Created new user for owner: ' . esc_html($owner['email']);
+        }
+
+        if ($user) {
+          $group_owner_ids[] = $user->ID;
+          if (!$creator_id) $creator_id = $user->ID;
+        }
+      }
+    }
+
+    if (!$creator_id) {
+      $admin_user = get_user_by('email', 'admin@crescerance.com');
+      $creator_id = $admin_user ? $admin_user->ID : 1;
+    }
 
     $payload = [
       'name'        => $group_name,
@@ -415,8 +432,6 @@ function handle_engagifii_hubs_fetch() {
       'creator_id'  => $creator_id,
     ];
 
-    $statuses[] = 'Creating group: ' . esc_html($group_name);
-
     $bb_response = wp_remote_post(site_url('/wp-json/buddyboss/v1/groups'), [
       'headers' => [
         'Authorization' => 'Bearer ' . jwt_token(),
@@ -424,15 +439,91 @@ function handle_engagifii_hubs_fetch() {
       ],
       'body' => json_encode($payload),
     ]);
-    $group_result = json_decode(wp_remote_retrieve_body($bb_response), true);
 
+    if (is_wp_error($bb_response)) {
+      $statuses[] = '❌ Failed to create group: ' . esc_html($group_name) . ' — ' . $bb_response->get_error_message();
+      continue;
+    }
+
+    $group_result = json_decode(wp_remote_retrieve_body($bb_response), true);
     if (!empty($group_result['id'])) {
-      $inserted_groups[] = $group_result['id'];
-      groups_update_groupmeta($group_result['id'], 'hub_id', $hub_id);
+      $group_id = $group_result['id'];
+      $inserted_groups[] = $group_id;
+      groups_update_groupmeta($group_id, 'hub_id', $hub_id);
+
+      foreach ($group_owner_ids as $owner_id) {
+        if (!groups_is_user_member($owner_id, $group_id)) {
+          groups_join_group($group_id, $owner_id);
+        }
+        groups_promote_member($owner_id, $group_id, 'admin');
+      }
+
+      $statuses[] = '✅ Group created and owners added: ' . esc_html($group_name);
+	  
+	  // 🖼️ Set group thumbnail if valid URL
+		if (filter_var($hub_thumbnail, FILTER_VALIDATE_URL)) {
+		  upload_avatar_from_remote_url($group_id, $hub_thumbnail, "group");
+		  $statuses[] = '🖼️ Thumbnail set for hub: ' . esc_html($group_name);
+		}
+
+      // Fetch group members
+      $members_response = wp_remote_get("{$options['api']['crmUrl']}/groups/get/peoples/lite/{$hub_id}", [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $access_token,
+          'accept'        => 'application/json',
+          'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
+        ]
+      ]);
+
+      if (is_wp_error($members_response)) {
+        $statuses[] = "⚠️ Failed to fetch members for group {$group_name}: " . $members_response->get_error_message();
+      } else {
+        $members = json_decode(wp_remote_retrieve_body($members_response), true);
+        if (is_array($members)) {
+          foreach ($members as $entry) {
+            $person = $entry['people'] ?? null;
+            if (empty($person['email'])) continue;
+
+            $user = get_user_by('email', $person['email']);
+            if (!$user) {
+              $username = generate_unique_username($person['firstName'] = '', $person['lastName'] = '', $person['email']);
+              $user_id = wp_insert_user([
+                'user_login' => $username,
+                'user_email' => sanitize_email($person['email']),
+                'user_pass'  => wp_generate_password(),
+              ]);
+
+              if (is_wp_error($user_id)) {
+                $statuses[] = '❌ Failed to create member user: ' . esc_html($person['email']) . ' — ' . $user_id->get_error_message();
+                continue;
+              }
+
+              if (!empty($person['id'])) {
+                update_user_meta($user_id, 'person_id', sanitize_text_field($person['id']));
+              }
+
+              do_action('engagifii_sso_authenticated', $user_id, $access_token );
+              $user = get_user_by('ID', $user_id);
+              $statuses[] = '✅ Created new member user: ' . esc_html($person['email']);
+            }
+
+            if ($user) {
+              if (!groups_is_user_member($user->ID, $group_id)) {
+                groups_join_group($group_id, $user->ID);
+                $statuses[] = '👤 Added member to group: ' . esc_html($user->user_email);
+              }
+            }
+          }
+        } else {
+          $statuses[] = "⚠️ Invalid members response for group {$group_name}";
+        }
+      }
+
+    } else {
+      $statuses[] = '❌ Group response invalid for: ' . esc_html($group_name);
     }
   }
 
-  // Save last fetched time
   $options['hubs_last_fetched'] = time();
   update_option('bb_engagifii', $options);
 
