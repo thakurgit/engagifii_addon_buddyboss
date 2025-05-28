@@ -106,6 +106,8 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 		public function includes() {
 			include_once( 'functions.php' );
 			include_once dirname( __FILE__ ) . '/integration/engagifii.php';
+			include_once dirname( __FILE__ ) . '/integration/member.php';
+			include_once dirname( __FILE__ ) . '/integration/hub.php';
 			require_once dirname( __FILE__ ) . '/integration/updater.php';
 		}
 		

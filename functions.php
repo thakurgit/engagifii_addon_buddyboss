@@ -98,6 +98,15 @@ if ( ! function_exists( 'engagifii_get_settings_fields' ) ) {
 					  'group'         => 'user_fields',
 				  ),
 			), 
+			'bb_engagifii_readonly_fields' => array(
+				'title'             => __( 'Restrict  Fields', 'engagifii-addon' ),
+				'callback'          => 'engagifii_fields_settings_callback',
+				'sanitize_callback' => '',
+				'args'              => array(
+					  'key'         => 'engagifii_readonly_fields',
+					  'group'         => 'user_fields',
+				  ),
+			), 
 		);
 		$fields['engagifii_hubs_settings'] = array(
 			'bb_engagifii_hubs' => array(
@@ -249,7 +258,7 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
     $options = get_option('bb_engagifii');
     $timezone_string = get_option('timezone_string') ?: 'UTC';
     $wp_timezone = new DateTimeZone($timezone_string);
-    $last_fetched = $options['hubs_last_fetched'] ?? null;
+    $last_fetched = $options['misc']['hubs_last_fetched'] ?? null;
 
     $formatted_time = 'Never fetched';
     if ($last_fetched) {
@@ -257,8 +266,34 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
       $dt->setTimezone($wp_timezone);
       $formatted_time = $dt->format('M d, Y h:i:s A');
     }
-
-    echo '<button id="fetch-hubs" class="button button-primary">Fetch Hubs</button>';
+	 $access_token = $_COOKIE['access_token'] ?? null;
+	 $response = wp_remote_post($options['api']['crmUrl'] . '/groups/list/count', [
+    'headers' => [
+      'Authorization' => 'Bearer ' . $access_token,
+      'accept'        => 'application/json',
+      'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
+      'Content-Type'  => 'application/json',
+    ],
+    'body' => '{}'
+  ]);
+	$totalGroups = json_decode(wp_remote_retrieve_body($response), true) ?? 'N/A';
+	$total_groups = groups_get_groups([
+		'type'  => 'newest',
+		'count' => true,
+	]);
+	echo '<div style="margin-bottom:8px"><label for="hub-fetch-limit" style="margin-right: 10px;">    Hubs per batch:  </label>
+  <select id="hub-fetch-limit" >
+    <option value="1">1</option>
+    <option value="5" selected>5</option>
+    <option value="10" >10</option>
+    <option value="15">15</option>
+    <option value="20">20</option>
+  </select></div>';
+	echo '<div style="margin-bottom:10px"><label for="hub-fetch-page" style="margin-right: 10px;">    Page Number:  </label>  <select id="hub-fetch-page" >';
+    for ($i = 1; $i <= 20; $i++): ?>
+      <option value="<?php echo $i ?>"><?php echo  $i ?></option> 
+    <?php endfor; 
+    echo '</select></div><button id="fetch-hubs" class="button button-primary">Fetch Hubs</button> <strong>('.$total_groups['total'].'/'.$totalGroups.'</strong> Hubs imported)<input type="hidden" id="last_fetched_time" name="bb_engagifii[misc][hubs_last_fetched]" value="'.$last_fetched.'">';
     echo '<p id="fetch-hub-status" class="cron-logs"><strong>Last fetched:</strong> ' . esc_html($formatted_time) . '</p>';
     ?>
     <script type="text/javascript">
@@ -276,6 +311,8 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
 
         $.post(ajaxurl, {
           action: 'engagifii_hubs_fetch',
+		  groupCount: jQuery('#hub-fetch-limit').val(),
+		  groupPage: jQuery('#hub-fetch-page').val(),
           security: '<?php echo esc_js($nonce); ?>'
         }, function(response) {
           const now = new Date();
@@ -305,6 +342,7 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
               }
             }
             showNextStatus();
+			$('#last_fetched_time').val(response.data.last_fetched);
           } else {
             $status.html('❌ Fetch failed: ' + response.data.error + '<br><strong>Last attempt:</strong> ' + formattedTime);
             $button.prop('disabled', false).text(originalText);
@@ -317,222 +355,20 @@ if ( ! function_exists( 'engagifii_hubs_settings_callback' ) ) {
   }
 }
 
-// AJAX handler
-add_action('wp_ajax_engagifii_hubs_fetch', 'handle_engagifii_hubs_fetch');
-
-function handle_engagifii_hubs_fetch() {
-  check_ajax_referer('fetch_hubs_nonce', 'security');
-
-  $statuses = ['Fetching groups from API...'];
-  $options = get_option('bb_engagifii');
-  $access_token = $_COOKIE['access_token'] ?? null;
-
-  if (!$access_token) {
-    wp_send_json_error(['error' => 'Access token missing.']);
-  }
-
-  $response = wp_remote_post($options['api']['crmUrl'] . '/groups/list', [
-    'headers' => [
-      'Authorization' => 'Bearer ' . $access_token,
-      'accept'        => 'application/json',
-      'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
-      'Content-Type'  => 'application/json',
-    ],
-    'body' => json_encode([
-      "itemCount"     => 100,
-      "sortBy"        => "",
-      "sortDirection" => "",
-      "pageNumber"    => 1,
-      "filterBody"    => [
-        "searchText"    => "clients",
-        "selectedDate"  => "",
-        "pageNumber"    => 1,
-        "pageSize"      => 10
-      ]
-    ])
-  ]);
-
-  if (is_wp_error($response)) {
-    wp_send_json_error(['error' => $response->get_error_message()]);
-  }
-
-  $statuses[] = 'Groups fetched. Creating hubs in WordPress...';
-
-  $inserted_groups = [];
-  $body = stripslashes(wp_remote_retrieve_body($response));
-  $items = json_decode($body, true)['result'] ?? [];
-
-  foreach ($items as $item) {
-    $group = $item['groupView'] ?? [];
-    if (empty($group['title']) || empty($group['id'])) continue;
-
-    $group_name = sanitize_text_field($group['title']);
-    $group_desc = sanitize_text_field($group['description'] ?? 'Hub Description goes here');
-    $hub_id = sanitize_text_field($group['id']);
-    $hub_thumbnail = sanitize_text_field($group['imageThumbUrl']);
-
-    $existing = groups_get_groups([
-      'meta_query' => [[
-        'key' => 'hub_id',
-        'value' => $hub_id,
-        'compare' => '='
-      ]]
-    ]);
-    if (!empty($existing['groups'])) continue;
-
-    $statuses[] = 'Creating group: ' . esc_html($group_name);
-
-    $group_owner_ids = [];
-    $creator_id = null;
-
-    if (!empty($group['groupOwners']) && is_array($group['groupOwners'])) {
-      foreach ($group['groupOwners'] as $owner) {
-        if (empty($owner['email'])) continue;
-
-        $user = get_user_by('email', $owner['email']);
-
-        if (!$user) {
-          $username = generate_unique_username($owner['firstName'] = '', $owner['lastName'] = '', $owner['email']);
-          $user_id = wp_insert_user([
-            'user_login' => $username,
-            'user_email' => sanitize_email($owner['email']),
-            'user_pass'  => wp_generate_password(),
-          ]);
-
-          if (is_wp_error($user_id)) {
-            $statuses[] = '❌ Failed to create user for email ' . esc_html($owner['email']) . ': ' . $user_id->get_error_message();
-            continue;
-          }
-
-          $user = get_user_by('ID', $user_id);
-          if (!empty($owner['id'])) {
-            update_user_meta($user_id, 'person_id', sanitize_text_field($owner['id']));
-          }
-
-          do_action('engagifii_sso_authenticated', $user_id, $access_token );
-          $statuses[] = '✅ Created new user for owner: ' . esc_html($owner['email']);
-        }
-
-        if ($user) {
-          $group_owner_ids[] = $user->ID;
-          if (!$creator_id) $creator_id = $user->ID;
-        }
-      }
-    }
-
-    if (!$creator_id) {
-      $admin_user = get_user_by('email', 'admin@crescerance.com');
-      $creator_id = $admin_user ? $admin_user->ID : 1;
-    }
-
-    $payload = [
-      'name'        => $group_name,
-      'description' => $group_desc,
-      'status'      => 'public',
-      'creator_id'  => $creator_id,
-    ];
-
-    $bb_response = wp_remote_post(site_url('/wp-json/buddyboss/v1/groups'), [
-      'headers' => [
-        'Authorization' => 'Bearer ' . jwt_token(),
-        'Content-Type' => 'application/json',
-      ],
-      'body' => json_encode($payload),
-    ]);
-
-    if (is_wp_error($bb_response)) {
-      $statuses[] = '❌ Failed to create group: ' . esc_html($group_name) . ' — ' . $bb_response->get_error_message();
-      continue;
-    }
-
-    $group_result = json_decode(wp_remote_retrieve_body($bb_response), true);
-    if (!empty($group_result['id'])) {
-      $group_id = $group_result['id'];
-      $inserted_groups[] = $group_id;
-      groups_update_groupmeta($group_id, 'hub_id', $hub_id);
-
-      foreach ($group_owner_ids as $owner_id) {
-        if (!groups_is_user_member($owner_id, $group_id)) {
-          groups_join_group($group_id, $owner_id);
-        }
-        groups_promote_member($owner_id, $group_id, 'admin');
-      }
-
-      $statuses[] = '✅ Group created and owners added: ' . esc_html($group_name);
-	  
-	  // 🖼️ Set group thumbnail if valid URL
-		if (filter_var($hub_thumbnail, FILTER_VALIDATE_URL)) {
-		  upload_avatar_from_remote_url($group_id, $hub_thumbnail, "group");
-		  $statuses[] = '🖼️ Thumbnail set for hub: ' . esc_html($group_name);
-		}
-
-      // Fetch group members
-      $members_response = wp_remote_get("{$options['api']['crmUrl']}/groups/get/peoples/lite/{$hub_id}", [
-        'headers' => [
-          'Authorization' => 'Bearer ' . $access_token,
-          'accept'        => 'application/json',
-          'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
-        ]
-      ]);
-
-      if (is_wp_error($members_response)) {
-        $statuses[] = "⚠️ Failed to fetch members for group {$group_name}: " . $members_response->get_error_message();
-      } else {
-        $members = json_decode(wp_remote_retrieve_body($members_response), true);
-        if (is_array($members)) {
-          foreach ($members as $entry) {
-            $person = $entry['people'] ?? null;
-            if (empty($person['email'])) continue;
-
-            $user = get_user_by('email', $person['email']);
-            if (!$user) {
-              $username = generate_unique_username($person['firstName'] = '', $person['lastName'] = '', $person['email']);
-              $user_id = wp_insert_user([
-                'user_login' => $username,
-                'user_email' => sanitize_email($person['email']),
-                'user_pass'  => wp_generate_password(),
-              ]);
-
-              if (is_wp_error($user_id)) {
-                $statuses[] = '❌ Failed to create member user: ' . esc_html($person['email']) . ' — ' . $user_id->get_error_message();
-                continue;
-              }
-
-              if (!empty($person['id'])) {
-                update_user_meta($user_id, 'person_id', sanitize_text_field($person['id']));
-              }
-
-              do_action('engagifii_sso_authenticated', $user_id, $access_token );
-              $user = get_user_by('ID', $user_id);
-              $statuses[] = '✅ Created new member user: ' . esc_html($person['email']);
-            }
-
-            if ($user) {
-              if (!groups_is_user_member($user->ID, $group_id)) {
-                groups_join_group($group_id, $user->ID);
-                $statuses[] = '👤 Added member to group: ' . esc_html($user->user_email);
-              }
-            }
-          }
-        } else {
-          $statuses[] = "⚠️ Invalid members response for group {$group_name}";
-        }
-      }
-
-    } else {
-      $statuses[] = '❌ Group response invalid for: ' . esc_html($group_name);
-    }
-  }
-
-  $options['hubs_last_fetched'] = time();
-  update_option('bb_engagifii', $options);
-
-  wp_send_json_success(['statuses' => $statuses]);
-}
 if ( ! function_exists( 'engagifii_fields_settings_callback' ) ) {
 	function engagifii_fields_settings_callback($args ) {
 		$key     = $args['key'];
 	$options = get_option( 'bb_engagifii' );
+	if($key=='engagifii_readonly_fields'){
+		$fields = get_all_buddyboss_profile_fields_simple();
+		$readonly_fields = isset( $options['misc']['readonly_fields'] ) ? $options['misc']['readonly_fields'] : array();
+		echo '<p><strong>Select the Member profile fields that members should not be able to edit. It can be changed only at Engagifii</strong></p>';
+		foreach ( $fields as $field_id => $field_label ) {
+			$is_checked = in_array( $field_id, $readonly_fields ) ? 'checked' : '';
+			echo "<label><input type='checkbox' name='bb_engagifii[misc][readonly_fields][]' value='{$field_id}' {$is_checked}> {$field_label}</label><br>";
+		}
+		return;
+	}
 		$response = wp_remote_get( $options['api']['crmUrl'].'/GetPersonProfileFields/'.get_option('engagifii_sso_settings')['client_id'], [
         'headers' => [
             'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
