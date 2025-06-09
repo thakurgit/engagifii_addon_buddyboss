@@ -428,61 +428,6 @@ function handle_engagifii_hubs_fetch() {
 
       // Fetch group members
 	  fetch_group_members($options, $access_token,  $statuses, $hub_id, $group_id);
-     /* $members_response = wp_remote_get("{$options['api']['crmUrl']}/groups/get/peoples/lite/{$hub_id}", [
-        'headers' => [
-          'Authorization' => 'Bearer ' . $access_token,
-          'accept'        => 'application/json',
-          'tenant-code'   => get_option('engagifii_sso_settings')['client_id'],
-        ]
-      ]);
-
-      if (is_wp_error($members_response)) {
-        $statuses[] = "⚠️ Failed to fetch members for group {$group_name}: " . $members_response->get_error_message();
-      } else {
-        $members = json_decode(wp_remote_retrieve_body($members_response), true);
-        if (is_array($members)) {
-          foreach ($members as $entry) {
-            $person = $entry['people'] ?? null;
-            if (empty($person['email'])) continue;
-
-            $user = get_user_by('email', $person['email']);
-            if (!$user) {
-              $username = generate_unique_username($person['firstName'] = '', $person['lastName'] = '', $person['email']);
-              $user_id = wp_insert_user([
-                'user_login' => $username,
-                'user_email' => sanitize_email($person['email']),
-                'user_pass'  => wp_generate_password(),
-              ]);
-
-              if (is_wp_error($user_id)) {
-                $statuses[] = '❌ Failed to create member user: ' . esc_html($person['email']) . ' — ' . $user_id->get_error_message();
-                continue;
-              }
-
-              if (!empty($person['id'])) {
-                update_user_meta($user_id, 'person_id', sanitize_text_field($person['id']));
-              }
-			  // show member in members page
-			  if (function_exists('bp_update_user_last_activity')) {
-				  bp_update_user_last_activity($user_id, current_time('mysql'));
-			  }
-
-              do_action('engagifii_sso_authenticated', $user_id, $access_token );
-              $user = get_user_by('ID', $user_id);
-              $statuses[] = '✅ Created new member user: ' . esc_html($person['email']);
-            }
-
-            if ($user) {
-              if (!groups_is_user_member($user->ID, $group_id)) {
-                groups_join_group($group_id, $user->ID);
-                $statuses[] = '👤 Added member to group: ' . esc_html($user->user_email);
-              }
-            }
-          }
-        } else {
-          $statuses[] = "⚠️ Invalid members response for group {$group_name}";
-        }
-      }*/
 
     } else {
       $statuses[] = '❌ Group response invalid for: ' . esc_html($group_name);

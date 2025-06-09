@@ -375,4 +375,3 @@ function handle_sync_member($request) {
 
     return new WP_REST_Response(['status' => 'user not found'], 404);
 }
-
