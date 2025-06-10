@@ -310,6 +310,29 @@ function get_all_buddyboss_profile_fields_simple() {
 
     return $fields;
 }
+// custom group description code
+function bb_engagifii_group_description( $group = null ) {
+    if ( ! $group ) {
+        $group = groups_get_current_group();
+    }
+
+    if ( empty( $group ) ) {
+        return;
+    }
+
+    $full_description = bp_get_group_description( $group );
+    $word_count       = str_word_count( wp_strip_all_tags( $full_description ) );
+    $max_words        = 100;
+
+    if ( $word_count > $max_words ) {
+        // Trim to 50 words, add ellipsis and "View more" link
+        $trimmed = wp_trim_words( $full_description, $max_words, '...' );
+        echo wp_kses_post( $trimmed );
+        echo ' <a href="#group-description-popup" class="bb-more-link show-action-popup">View more</a>';
+    } else {
+        echo wp_kses_post( $full_description );
+    }
+}
 
 /* function update_all_user_display_names() {
     $users = get_users();
