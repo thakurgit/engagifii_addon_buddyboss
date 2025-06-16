@@ -333,6 +333,20 @@ function bb_engagifii_group_description( $group = null ) {
         echo wp_kses_post( $full_description );
     }
 }
+add_action('bbp_new_reply', function($reply_id, $topic_id, $forum_id, $anonymous_data, $reply_author) {
+    if (!current_user_can('moderate')) {
+        wp_update_post([
+            'ID' => $reply_id,
+            'post_status' => 'pending'
+        ]);
+    }
+}, 10, 5);
+add_filter('bbp_has_replies_query', function($args) {
+    if (current_user_can('moderate')  ) {
+        $args['post_status'] = array('publish', 'pending'); // include pending
+    }
+    return $args;
+});
 
 /* function update_all_user_display_names() {
     $users = get_users();
@@ -354,7 +368,42 @@ function bb_engagifii_group_description( $group = null ) {
 add_action('init', 'update_all_user_display_names');*/
 ?>
 
-        
+<script>
+jQuery(document).ready(function($) {
+  $('.bbp-reply-header').each(function() {
+    const replyEl = $(this).closest('.bbp-reply');
+    const replyId = replyEl.data('reply-id');
+
+    if (replyEl.hasClass('status-pending') && $('body').hasClass('role-moderator')) {
+      const menu = replyEl.find('.bbp-reply-actions .dropdown-menu');
+
+      if (menu.length && !menu.find('.bbp-approve-reply').length) {
+        menu.append(
+          `<a href="#" class="dropdown-item bbp-approve-reply" data-reply-id="${replyId}">Approve</a>`
+        );
+      }
+    }
+  });
+
+  $(document).on('click', '.bbp-approve-reply', function(e) {
+    e.preventDefault();
+    const replyId = $(this).data('reply-id');
+
+    $.get({
+      url: `/wp-admin/admin-ajax.php?action=approve_reply&reply_id=${replyId}`,
+      success(res) {
+        if (res.success) {
+          alert('Reply approved');
+          location.reload();
+        } else {
+          alert('Failed to approve: ' + res.data);
+        }
+      }
+    });
+  });
+});
+
+</script>        
         
         
 
