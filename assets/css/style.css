@@ -66,3 +66,24 @@ max-height: 200px;
 overflow-y:auto;	
 padding: 10px;
 }
+.activity-modal {
+float: right;
+display:flex;
+align-items:center;
+column-gap:10px;
+margin-right: 10px;
+}
+.activity-modal .button, a.button.reset_filter {
+	display: inline-flex;
+	align-items: center;
+	column-gap: 5px;
+}
+.activity-pagination .page-numbers {
+	border: 1px solid #bababa;
+	padding: 4px 10px;
+	border-radius: 4px;
+}
+.activity-pagination a.page-numbers {
+text-decoration:none;
+background: white;	
+}

@@ -109,10 +109,11 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 			include_once dirname( __FILE__ ) . '/integration/member.php';
 			include_once dirname( __FILE__ ) . '/integration/hub.php';
 			require_once dirname( __FILE__ ) . '/integration/updater.php';
+			require_once dirname( __FILE__ ) . '/integration/activity.php';
 		}
 		
 		private function init_hooks() {		
-		 add_action('admin_menu',array($this,'engagifii_bb_add_admin_menu'), 10);	
+		 add_action('admin_menu',array($this,'engagifii_bb_add_admin_menu'), 10);			  
 		}
 
 		/**
@@ -149,9 +150,9 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 			$parent = site_url().'/wp-admin/admin.php?page=bp-integrations';
 			add_submenu_page( 'buddyboss-platform', 'Engagifii Add-on', '<b>Engagifii</b> <span class="bb-upgrade-nav-tag">New</span>', 'manage_options', $parent.'&tab=bp-engagifii_settings',  $callback = '');
 		}
+		
 
 	}
-
 	/**
 	 * Returns the main instance of engagifii_BB_Platform_Addon to prevent the need to use globals.
 	 *

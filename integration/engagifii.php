@@ -333,7 +333,7 @@ function bb_engagifii_group_description( $group = null ) {
         echo wp_kses_post( $full_description );
     }
 }
-add_action('bbp_new_reply', function($reply_id, $topic_id, $forum_id, $anonymous_data, $reply_author) {
+/*add_action('bbp_new_reply', function($reply_id, $topic_id, $forum_id, $anonymous_data, $reply_author) {
     if (!current_user_can('moderate')) {
         wp_update_post([
             'ID' => $reply_id,
@@ -346,7 +346,7 @@ add_filter('bbp_has_replies_query', function($args) {
         $args['post_status'] = array('publish', 'pending'); // include pending
     }
     return $args;
-});
+});*/
 
 /* function update_all_user_display_names() {
     $users = get_users();
@@ -368,7 +368,7 @@ add_filter('bbp_has_replies_query', function($args) {
 add_action('init', 'update_all_user_display_names');*/
 ?>
 
-<script>
+<?php /*?><script>
 jQuery(document).ready(function($) {
   $('.bbp-reply-header').each(function() {
     const replyEl = $(this).closest('.bbp-reply');
@@ -403,7 +403,7 @@ jQuery(document).ready(function($) {
   });
 });
 
-</script>        
+</script>   <?php */?>     
         
         
 

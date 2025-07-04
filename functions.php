@@ -146,6 +146,14 @@ if ( ! function_exists( 'engagifii_get_settings_fields' ) ) {
 		  'sanitize_callback' => 'sanitize_text_or_array_field',
 		  'args'              => array(),
 	),
+	'bb_engagifii_activity_log' => array(
+		  'title'             => __( 'Activity Log', 'engagifii-addon' ),
+		  'callback'          => 'engagifii_misc_callback',
+		  'sanitize_callback' => 'sanitize_text_or_array_field',
+		  'args'              => array(
+			'key'         => 'activity_log',
+		),
+	)
 	);
 	$fields['engagifii_cron_logs'] = array(
 		  'bb_engagifii_cron_logs' => array(
@@ -427,8 +435,16 @@ function engagifii_cron_logs_callback( $args ) {
 	echo '<div class="cron-logs">'.$logs.'</div>';
 }
 function engagifii_misc_callback( $args ) {
-	$bb_dash_menu = get_option( 'bb_engagifii' )['misc']['dash_menu'];
-	echo '<input type="text" id="dash_menu" name="bb_engagifii[misc][dash_menu]" value="' . esc_attr( $bb_dash_menu ) . '" class="regular-text" /><p><i>Leave blank for no change.</i></p>';
+	$options = get_option( 'bb_engagifii' );
+	$key     = $args['key'];
+	if($key=='activity_log'){ 
+		$enabled = isset( $options['misc']['activity_log'] ) && $options['misc']['activity_log'] == 1;
+		$checked = $enabled ? 'checked="checked"' : '';
+	  echo '<label><input type="checkbox" id="activity_log" name="bb_engagifii[misc][activity_log]" value="1" class="" ' . $checked . ' />Enable</label><p><i>Go to <a href="'.admin_url().'admin.php?page=engagifii_activity_log">Activity Log</a></i></p>';
+	}else{
+	  $bb_dash_menu = get_option( 'bb_engagifii' )['misc']['dash_menu'];
+	  echo '<input type="text" id="dash_menu" name="bb_engagifii[misc][dash_menu]" value="' . esc_attr( $bb_dash_menu ) . '" class="regular-text" /><p><i>Leave blank for no change.</i></p>';
+	}
 }
 /***************************** Add section in current settings ***************************************/
 
