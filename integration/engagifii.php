@@ -403,7 +403,4 @@ jQuery(document).ready(function($) {
   });
 });
 
-</script>   <?php */?>     
-        
-        
-
+</script>   <?php */?>
