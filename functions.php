@@ -440,7 +440,10 @@ function engagifii_misc_callback( $args ) {
 	if($key=='activity_log'){ 
 		$enabled = isset( $options['misc']['activity_log'] ) && $options['misc']['activity_log'] == 1;
 		$checked = $enabled ? 'checked="checked"' : '';
-	  echo '<label><input type="checkbox" id="activity_log" name="bb_engagifii[misc][activity_log]" value="1" class="" ' . $checked . ' />Enable</label><p><i>Go to <a href="'.admin_url().'admin.php?page=engagifii_activity_log">Activity Log</a></i></p>';
+	  echo '<label><input type="checkbox" id="activity_log" name="bb_engagifii[misc][activity_log]" value="1" class="" ' . $checked . ' />Enable</label>';
+	  if($checked){
+	  	echo '<p><i>Go to <a href="'.admin_url().'admin.php?page=engagifii_activity_log">Activity Log</a></i></p>';
+	  }
 	}else{
 	  $bb_dash_menu = get_option( 'bb_engagifii' )['misc']['dash_menu'];
 	  echo '<input type="text" id="dash_menu" name="bb_engagifii[misc][dash_menu]" value="' . esc_attr( $bb_dash_menu ) . '" class="regular-text" /><p><i>Leave blank for no change.</i></p>';

@@ -1,4 +1,4 @@
-<?php
+<?php 
 //create activity log file
 function engagifii_init_activity_log() {
 	//check if activity log enabled
@@ -38,28 +38,36 @@ if ( !empty($options['misc']['activity_log']) ) {
     file_put_contents($log_file, json_encode($init_entry) . "\n");
     }
 	// Register logging actions conditionally
-	add_action( 'groups_created_group', 'engagifii_log_group_created', 10, 2 );
+	add_action( 'groups_created_group', 'engagifii_log_group_created_once', 10, 2 );
 	add_action( 'groups_join_group', 'engagifii_log_group_join', 10, 2 );
 	add_action( 'user_register', 'engagifii_log_user_created', 10, 1 );
+	add_action('wp_login', 'engagifii_log_member_login', 10, 2); 
+	add_action('wp_logout', 'engagifii_log_member_logout',10);
+	add_action('bp_activity_after_save', 'engagifii_log_status_post', 10, 1);
+	add_action('bp_activity_comment_posted', 'engagifii_log_status_reply', 10, 2);
+	add_action('bbp_new_topic', 'engagifii_log_new_discussion', 10, 4);
+	add_action('bbp_new_reply', 'engagifii_log_new_reply', 10, 5);
+	add_action( 'wp_ajax_activity_mark_fav', 'engagifii_log_reaction_ajax' );
+	$GLOBALS['engagifii_logged_in_user_id'] = get_current_user_id();
 }
 add_action('init', 'engagifii_init_activity_log');
-
+add_action('engagifii_sso_authenticated', 'engagifii_log_user_created_sso', 10, 1); 
+add_action('engagifii_sso_loggedIn', 'engagifii_log_member_login_sso', 10, 1); 
 //engagifii activity types
 function engagifii_get_activity_types() {
     return [
 		//'log_initialized'    => 'Activity Log Initialized',
+		'member_registered'  => 'New member registered',
+		'member_login'     	 => 'Member logged in',
+		'member_logout'      => 'Member logged out',
+		'posted_status'      => 'Posted a Status',
+		'replied_status'      => 'Replied to a Status',
+		'reacted_post'      => 'Reacted to a Post',
 		'created_hub'         => 'Created a Hub',
 		'joined_hub'         => 'Joined a Hub',
-		'member_registered'     => 'New member registered',
-		'posted_status'      => 'Posted a Status Update',
-		'changed_avatar'     => 'Member Changed Profile Photo',
-		'edited_hub_details' => 'Hub Details Edited',
-		'group_access'       => 'Accessed a Hub',
-		'posted_discussion'  => 'Posted a Discussion',
-		'commented'          => 'Commented on a Discussion',
-		'reacted'            => 'Reacted to a Post',
-		'uploaded_doc'       => 'Uploaded a Document',
-		'downloaded_doc'     => 'Viewed/Downloaded a Document',
+		'posted_in_group'     => 'Posted in Group',
+		'posted_discussion'  => 'Started a Discussion',
+		'replied_discussion'  => 'Replied to a Discussion',
 	 ];
 }
 //parse logs entry
@@ -90,7 +98,19 @@ function engagifii_parse_activity_entry( $entry, $activity_types = [] ) {
 		}else{
 		  $note = 'Member '.$action_text.' the hub';
 		}
-	} else {
+	} else if ( $activity_type == 'posted_status') {
+		$note = 'Posted a status update: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+	} else if ( $activity_type == 'posted_in_group') {
+		$note = 'Posted a status in Group: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+	} else if ( $activity_type == 'replied_status') {
+		$note = 'Replied to a status update: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['parent_id']).'#acomment-'.$entry['log_meta']['reply_id']).'" target="_blank">View Reply</a>';
+	} else if ( $activity_type == 'reacted_post') {
+		$note = 'Reacted to a post: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+	} else if ( $activity_type == 'posted_discussion') {
+		$note = 'Started a new discussion: <a href="'.esc_url(get_permalink($entry['log_meta']['discussion_id'])).'" target="_blank">View Discussion</a>';
+	} else if ( $activity_type == 'replied_discussion') {
+		$note = 'Replied to a  discussion: <a href="'.esc_url(get_permalink($entry['log_meta']['reply_id'])).'" target="_blank">View Reply</a>';
+	}else {
 		$note = $entry['log_meta']['note'] ?? 'Unknown';
 	}
 
@@ -299,16 +319,26 @@ function engagifii_log_group_join( $group_id, $user_id ) {
    	engagifii_write_activity_log_entry( $entry );
 }
 //create group log
-function engagifii_log_group_created( $group_id, $user_id ) {
+function engagifii_log_group_created_once( $group_id, $group ) {
+	if ( ! $group_id || empty( $group->creator_id ) ) {
+		return;
+	}
+	// Avoid duplicate logging
+	$already_logged = get_transient( "engagifii_logged_group_{$group_id}" );
+	if ( $already_logged ) {
+		return;
+	}
+	// Mark as logged for 10 minutes
+	set_transient( "engagifii_logged_group_{$group_id}", true, 10 * MINUTE_IN_SECONDS );
 	$entry = [
 		'timestamp'     => current_time( 'timestamp' ),
 		'activity_type' => 'created_hub',
-		'user_id'       => $user_id->creator_id,
+		'user_id'       => $group->creator_id,
 		'log_meta'      => [
-			'hub_id'   => $group_id,
+			'hub_id' => $group_id,
 		],
 	];
-   	engagifii_write_activity_log_entry( $entry );
+	engagifii_write_activity_log_entry( $entry );
 }
 //new member registered
 function engagifii_log_user_created( $user_id ) {
@@ -322,6 +352,152 @@ function engagifii_log_user_created( $user_id ) {
 	];
 
 	engagifii_write_activity_log_entry( $entry );
+}
+//new member registered via SSO
+function engagifii_log_user_created_sso( $user_id ) {
+	$entry = [
+		'timestamp'     => current_time( 'timestamp' ),
+		'activity_type' => 'member_registered',
+		'user_id'       => $user_id,
+		'log_meta'      => [
+			'note' => 'Member Profile Created (SSO)',
+		],
+	];
+
+	engagifii_write_activity_log_entry( $entry );
+}
+//member logged in 
+function engagifii_log_member_login($user_login, $user) {
+	$entry = [
+        'timestamp'     => current_time( 'timestamp' ),
+        'activity_type' => 'member_login',
+        'user_id'       => $user->ID,
+		'log_meta'      => [
+			'note' => 'Member logged in successfully (wp_login)',
+		],
+    ];
+	engagifii_write_activity_log_entry( $entry );
+}
+//member logged in via SSO 
+function engagifii_log_member_login_sso($user_id) {
+	$entry = [
+        'timestamp'     => current_time( 'timestamp' ),
+        'activity_type' => 'member_login',
+        'user_id'       => $user_id,
+		'log_meta'      => [
+			'note' => 'Member logged in successfully (SSO)',
+		],
+    ];
+	engagifii_write_activity_log_entry( $entry );
+}
+//member logged out 
+function engagifii_log_member_logout() {
+	$user_id = isset($GLOBALS['engagifii_logged_in_user_id']) ? $GLOBALS['engagifii_logged_in_user_id'] : '';
+	if (!$user_id) return;
+	
+	$entry = [
+        'timestamp'     => current_time( 'timestamp' ),
+        'activity_type' => 'member_logout',
+        'user_id'       => $user_id,
+		'log_meta'      => [
+			'note' => 'Member logged out successfully',
+		],
+    ];
+
+	engagifii_write_activity_log_entry( $entry );
+}
+//member posted a status/post
+function engagifii_log_status_post($activity) {
+     // Skip edits
+    if ($_POST['edit_activity'] !== 'false' || $activity->type !== 'activity_update' ) {
+        return;
+    }
+    $user_id = $activity->user_id;
+    $post_id = $activity->id;
+    $timestamp = current_time('timestamp');
+    $entry = [
+        'timestamp'     => $timestamp,
+        'user_id'       => $user_id,
+        'activity_type' => '',
+    ];
+    // Timeline update (not in group)
+    if (empty($activity->item_id) && $activity->component === 'activity') {
+        $entry['activity_type'] = 'posted_status';
+        $entry['log_meta'] = ['post_id' => $post_id];
+    }
+    // Group update
+    if (!empty($activity->item_id) && $activity->component === 'groups') {
+        $entry['activity_type'] = 'posted_in_group';
+        $entry['log_meta'] = [
+            'post_id'  => $post_id,
+        ];
+    }
+        engagifii_write_activity_log_entry($entry);
+}
+//member replied to a status update
+function engagifii_log_status_reply($comment_id, $params) {
+    $comment = new BP_Activity_Activity($comment_id);
+    if ($comment->type === 'activity_comment') {
+        $entry = [
+            'timestamp'     => current_time('timestamp'),
+            'activity_type' => 'replied_status',
+            'user_id'       => $comment->user_id,
+            'log_meta'      => [
+                'reply_id' => $comment_id,
+                'parent_id' => $comment->item_id,
+            ],
+        ];
+        engagifii_write_activity_log_entry($entry);
+    }
+}
+//member started a discussion
+function engagifii_log_new_discussion($topic_id, $forum_id, $anonymous_data, $topic_author_id) {
+    if (!$topic_author_id) {
+        return;
+    }
+	$entry = [
+			'timestamp'     => current_time( 'timestamp' ),
+            'activity_type' => 'posted_discussion',
+            'user_id' => $topic_author_id,
+			'log_meta'      => [
+			  'discussion_id' => $topic_id,
+			],
+        ];
+	engagifii_write_activity_log_entry( $entry );
+}
+//member replied to a discussion
+function engagifii_log_new_reply($reply_id, $topic_id, $forum_id, $anonymous_data, $reply_author_id) {
+    if (!$reply_author_id) return;
+
+    $entry = [
+			'timestamp'     => current_time( 'timestamp' ),
+            'activity_type' => 'replied_discussion',
+            'user_id' => $reply_author_id,
+			'log_meta'      => [
+			  'reply_id' => $reply_id,
+			],
+        ];
+	engagifii_write_activity_log_entry( $entry );
+}
+//member reacted to a post/reply
+function engagifii_log_reaction_ajax() {
+    if ( ! is_user_logged_in() || empty($_POST['reaction_id'])) {
+        return;
+    }
+    $user_id      = get_current_user_id();
+    $reaction_id  = intval( $_POST['reaction_id'] );
+    $activity_id  = intval( $_POST['item_id'] );
+    $entry = [
+        'timestamp'     => current_time('timestamp'),
+        'activity_type' => 'reacted_post',
+        'user_id'       => $user_id,
+        'log_meta'      => [
+            'reaction_id' => $reaction_id,
+            'post_id'   => $activity_id,
+        ],
+    ];
+
+    engagifii_write_activity_log_entry( $entry );
 }
 //export CSV
 function engagifii_export_activity_csv() {
