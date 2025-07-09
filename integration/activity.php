@@ -1,23 +1,21 @@
-<?php 
-//create activity log file
-function engagifii_init_activity_log() {
-	//check if activity log enabled
+<?php
+// EARLY EXIT: Skip everything if activity logging is not enabled
 $options = get_option( 'bb_engagifii' );
-if ( !empty($options['misc']['activity_log']) ) {
+if ( empty( $options['misc']['activity_log'] ) ) {
+    return;
+}
+function engagifii_init_activity_log() {
 	add_action('admin_menu', function () {
 	  add_menu_page(
 		  'Members Activity Log',
 		  'Members Activity Log',
 		  'manage_options',
 		  'engagifii_activity_log',
-		  'engagifii_render_activity_log_page',
+		  'engagifii_render_activity_log',
 		  'dashicons-list-view',
 		  8
 	  );
 	  });
-}else {
-    return;
-}
     $upload_dir = wp_upload_dir(); // Gets wp-content/uploads path
     $log_dir    = trailingslashit($upload_dir['basedir']) . 'engagifii-activity/';
     $log_file   = $log_dir . 'activity.log';
@@ -53,6 +51,7 @@ if ( !empty($options['misc']['activity_log']) ) {
 add_action('init', 'engagifii_init_activity_log');
 add_action('engagifii_sso_authenticated', 'engagifii_log_user_created_sso', 10, 1); 
 add_action('engagifii_sso_loggedIn', 'engagifii_log_member_login_sso', 10, 1); 
+
 //engagifii activity types
 function engagifii_get_activity_types() {
     return [
@@ -72,22 +71,18 @@ function engagifii_get_activity_types() {
 }
 //parse logs entry
 function engagifii_parse_activity_entry( $entry, $activity_types = [] ) {
-	if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $entry ) ) {
-		return false;
-	}
-
-	$user_id   = $entry['user_id'] ?? '';
+	$user_id   = esc_html( $entry->user_id ) ?? '';
 	$user_info = get_userdata( $user_id );
 	$user_name = $user_info ? $user_info->display_name : 'User ID ' . $user_id;
 	$user_email = $user_info ? $user_info->user_email : '';
 	$user_link = esc_url( $user_info ? bp_core_get_user_domain( $user_id ) : '' );
-
-	$activity_type  = $entry['activity_type'] ?? 'Unknown';
+	$activity_type  = esc_html( $entry->activity_type ) ?? 'Unknown';
 	$activity_label = $activity_types[$activity_type] ?? ucfirst(str_replace('_', ' ', $activity_type));
+	$log_meta = maybe_unserialize( $entry->log_meta );
 
 	// Build human-readable activity
 	if ( in_array( $activity_type, [ 'joined_hub', 'created_hub' ] ) ) {
-		$hub_id = $entry['log_meta']['hub_id'] ?? '';
+		$hub_id = esc_html( $entry->hub_id ) ?? '';
 		$group = groups_get_group( [ 'group_id' => $hub_id ] );
 		$group_name = esc_html( $group->name ?? '' );
 		$group_link = esc_url( bp_get_group_permalink( $group ) );
@@ -99,28 +94,25 @@ function engagifii_parse_activity_entry( $entry, $activity_types = [] ) {
 		  $note = 'Member '.$action_text.' the hub';
 		}
 	} else if ( $activity_type == 'posted_status') {
-		$note = 'Posted a status update: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+		$note = 'Posted a status update: <a href="'.esc_url(bp_activity_get_permalink(esc_html( $entry->post_id ))).'" target="_blank">View Post</a>';
 	} else if ( $activity_type == 'posted_in_group') {
-		$note = 'Posted a status in Group: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+		$note = 'Posted a status in Group: <a href="'.esc_url(bp_activity_get_permalink(esc_html( $entry->post_id ))).'" target="_blank">View Post</a>';
 	} else if ( $activity_type == 'replied_status') {
-		$note = 'Replied to a status update: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['parent_id']).'#acomment-'.$entry['log_meta']['reply_id']).'" target="_blank">View Reply</a>';
+		$note = 'Replied to a status update: <a href="'.esc_url(bp_activity_get_permalink($log_meta['parent_id']).'#acomment-'.$log_meta['reply_id']).'" target="_blank">View Reply</a>';
 	} else if ( $activity_type == 'reacted_post') {
-		$note = 'Reacted to a post: <a href="'.esc_url(bp_activity_get_permalink($entry['log_meta']['post_id'])).'" target="_blank">View Post</a>';
+		$note = 'Reacted to a post: <a href="'.esc_url(bp_activity_get_permalink(esc_html( $entry->post_id ))).'" target="_blank">View Post</a>';
 	} else if ( $activity_type == 'posted_discussion') {
-		$note = 'Started a new discussion: <a href="'.esc_url(get_permalink($entry['log_meta']['discussion_id'])).'" target="_blank">View Discussion</a>';
+		$note = 'Started a new discussion: <a href="'.esc_url(get_permalink($log_meta['discussion_id'])).'" target="_blank">View Discussion</a>';
 	} else if ( $activity_type == 'replied_discussion') {
-		$note = 'Replied to a  discussion: <a href="'.esc_url(get_permalink($entry['log_meta']['reply_id'])).'" target="_blank">View Reply</a>';
+		$note = 'Replied to a  discussion: <a href="'.esc_url(get_permalink($log_meta['reply_id'])).'" target="_blank">View Reply</a>';
 	}else {
-		$note = $entry['log_meta']['note'] ?? 'Unknown';
+		$note = $log_meta['note'] ?? 'Unknown';
 	}
 
-	$raw_timestamp = $entry['timestamp'] ?? '';
-	$timestamp = is_numeric( $raw_timestamp )
-		? date_i18n( 'F j, Y \a\t g:i a', (int) $raw_timestamp )
-		: '';
-	$timestamp_date = is_numeric( $raw_timestamp )
-		? date_i18n( 'F j, Y', (int) $raw_timestamp )
-		: '';
+	$timestamp = $entry->created_at ?? '';
+	$timestamp_date = ! empty( $timestamp )
+    ? date_i18n( 'F j, Y', strtotime( $timestamp ) )
+    : '';
 	return [
 		'user_name'     => $user_name,
 		'user_link'     => $user_link,
@@ -134,47 +126,77 @@ function engagifii_parse_activity_entry( $entry, $activity_types = [] ) {
 }
 
 //list all activities
-function engagifii_render_activity_log_page() {
-	$upload_dir = wp_upload_dir();
-	$log_file = trailingslashit( $upload_dir['basedir'] ) . 'engagifii-activity/activity.log';
-
-    echo '<div class="wrap"><h1>Activity Log</h1>';
-
-    if (!file_exists($log_file)) {
-        echo '<p><strong>No log file found.</strong></p></div>';
-        return;
-    }
-	$lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-	$lines = array_reverse($lines); // Newest first
-    if (empty($lines)) {
-        echo '<p>No activity logged yet.</p></div>';
-        return;
-    }
+function engagifii_render_activity_log() {
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'engagifii_activity_log';
 // Get filter values
 $selected_member    = isset($_GET['member_id']) ? intval($_GET['member_id']) : '';
 $activity_type  = isset($_GET['activity_type']) ? sanitize_text_field($_GET['activity_type']) : '';
-$activity_date          = isset($_GET['activity_date']) ? $_GET['activity_date'] : '';
-foreach ($lines as $line) {
-    $entry = json_decode($line, true);
-    if (json_last_error() !== JSON_ERROR_NONE || !is_array($entry)) continue;
+$activity_date   = isset($_GET['activity_date']) ? $_GET['activity_date'] : '';
+$per_page    = 20;
+$paged       = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+$offset      = ($paged - 1) * $per_page;
+$params = [];
+$count_sql = "SELECT COUNT(*) FROM {$table_name} WHERE 1=1";
+$data_sql  = "SELECT * FROM {$table_name} WHERE 1=1";
 
-    if ($selected_member && $entry['user_id'] != $selected_member) continue;
-    if ($activity_type && $entry['activity_type'] !== $activity_type) continue;
-    if ($activity_date) {
-	  $entry_month = date('Ym', (int) $entry['timestamp']);
-	  if ($entry_month != $activity_date) {
-		  continue;
-	  }
-	}
-
-    $filtered_entries[] = $entry;
+// Add filters
+if ( $selected_member ) {
+    $count_sql .= " AND user_id = %d";
+    $data_sql  .= " AND user_id = %d";
+    $params[] = $selected_member;
 }
-	$total_items = count($filtered_entries);
-	$per_page    = 20;
-	$paged       = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-	$offset      = ($paged - 1) * $per_page;
-	$logs_to_display = array_slice($filtered_entries, $offset, $per_page);
-	$total_pages     = ceil($total_items / $per_page);
+
+if ( $activity_type ) {
+    $count_sql .= " AND activity_type = %s";
+    $data_sql  .= " AND activity_type = %s";
+    $params[] = $activity_type;
+}
+
+if ( $activity_date && preg_match( '/^\d{6}$/', $activity_date ) ) {
+    $year = substr( $activity_date, 0, 4 );
+    $month = substr( $activity_date, 4, 2 );
+    $count_sql .= " AND YEAR(created_at) = %d AND MONTH(created_at) = %d";
+    $data_sql .= " AND YEAR(created_at) = %d AND MONTH(created_at) = %d";
+    $params[] = intval($year);
+    $params[] = intval($month);
+}
+
+// Ordering and limiting for data
+$data_sql .= " ORDER BY created_at DESC LIMIT %d OFFSET %d";
+$params[] = $per_page;
+$params[] = $offset;
+
+// Prepare queries
+$count_query = $wpdb->prepare($count_sql, ...$params);
+$data_query  = $wpdb->prepare($data_sql, ...$params);
+
+// Execute
+$total_items = $wpdb->get_var($count_query);
+$lines     = $wpdb->get_results($data_query);
+$activity_types = engagifii_get_activity_types();
+echo '<div class="wrap"><h1 class="wp-heading-inline">Activity Log';
+$has_filter = !empty($_GET['member_id']) || !empty($_GET['activity_type']) || !empty($_GET['activity_date']);
+if ( $has_filter ) {
+    echo '<span class="subtitle">Filtered results for';
+    $search_parts = [];
+    if ( !empty($_GET['member_id']) ) {
+        $search_parts[] = 'Member: <strong>' . esc_html(($user = get_user_by('ID', $_GET['member_id']))->display_name).'</strong>';
+    }
+    if ( !empty($_GET['activity_type']) ) {
+        $search_parts[] = 'Activity: <b>' . esc_html($activity_types[$_GET['activity_type']]).'</b>';
+    }
+    if ( !empty($_GET['activity_date']) ) {
+        $date_raw = esc_html($_GET['activity_date']);
+        $date_obj = DateTime::createFromFormat('Ym', $date_raw);
+        if ( $date_obj ) {
+            $search_parts[] = 'Month: <b>' . $date_obj->format('F Y').'</b>';
+        }
+    }
+    echo ' "' . implode(', ', $search_parts) . '"</span>';
+}
+
+echo '</h1>';
 // Filter UI
 echo '<div class="tablenav top"><div class="alignleft actions"><form method="get" action=""><input type="hidden" name="page" value="engagifii_activity_log"><label for="user_id" class="screen-reader-text">User: </label>';
 echo '<select name="member_id">';
@@ -186,7 +208,6 @@ foreach ($users as $user) {
 }
 echo '</select> ';
 
-$activity_types = engagifii_get_activity_types();
 echo '<label for="activity_type" class="screen-reader-text">Activity Type: </label>';
 echo '<select name="activity_type">';
 echo '<option value="">All Activity Types</option>';
@@ -199,26 +220,14 @@ echo '</select> ';
 // Date fields
 echo '<label for="activity_date" class="screen-reader-text">Filter by month</label>';
 echo '<select name="activity_date"><option value="">All Dates</option>';
-// Get the first line (oldest log)
-$first_line = '';
-$fh = fopen($log_file, 'r');
-if ($fh) {
-    while (($line = fgets($fh)) !== false) {
-        if (!empty(trim($line))) {
-            $first_line = $line;
-            break;
-        }
-    }
-    fclose($fh);
-}
-
-// Default: start from 12 months ago
-$start = new DateTime('-12 months');
-if ($first_line) {
-    $entry = json_decode($first_line, true);
-    if (isset($entry['timestamp']) && is_numeric($entry['timestamp'])) {
-        $first_log_time = (int) $entry['timestamp'];
-        $start = (new DateTime())->setTimestamp($first_log_time)->modify('first day of this month');
+$oldest_date_str = $wpdb->get_var( "SELECT MIN(created_at) FROM $table_name" );
+$start = new DateTime('-12 months'); // Default: 12 months ago
+if ( $oldest_date_str ) {
+    try {
+        $first_log_time = new DateTime( $oldest_date_str );
+        $start = $first_log_time->modify('first day of this month');
+    } catch ( Exception $e ) {
+        // fallback if date is invalid
     }
 }
 $now = new DateTime('first day of this month');
@@ -239,10 +248,11 @@ foreach ($months as $month) {
 }
 echo '</select> ';
 echo '<input type="submit" class="button button-primary" value="Filter" />';
-if ($selected_member || $activity_type): ?>
+if ($selected_member || $activity_type || $activity_date): ?>
   <a href="<?php echo admin_url('admin.php?page=engagifii_activity_log'); ?>" class="button reset_filter"><span class="dashicons dashicons-update"></span>Reset Filter</a>
 <?php endif; 
-echo '</form></div><div class="tablenav-pages activity-pagination"><span class="displaying-num">' . $total_items . ' Items</span>';
+echo '</form></div><div class="tablenav-pages activity-pagination"><span class="displaying-num">' . $total_items . ' Logs</span>';
+$total_pages     = ceil($total_items / $per_page);
 if ($total_pages > 1) {
     $base_url = remove_query_arg('paged');
     echo paginate_links([
@@ -270,13 +280,15 @@ echo '</div>'; ?>
 </form></div>
 <br class="clear"></div>
 <?php
+	if (empty($lines)) {
+	  echo '<div class="notice notice-error"><p><strong>No logs found.</strong> Please try with different filters.</p></div>';
+	  return;
+  }
     echo '<table class="widefat fixed striped">';
     echo '<thead><tr><th>Member Name</th><th>Activity Type</th><th>Activity Detail</th><th>Date/Time</th></tr></thead>';
     echo '<tbody>';
-	if (empty($filtered_entries)) {
-	  echo '<div class="notice notice-error"><p><strong>No logs found.</strong> Please try with different filters.</p></div>';
-	} else {
-	  foreach ($logs_to_display as $entry) {
+	  foreach ($lines as $entry) {
+		 // print_r($entry);
 		  $data = engagifii_parse_activity_entry( $entry, $activity_types );
 		  if ( ! $data ) continue;
 		
@@ -287,22 +299,36 @@ echo '</div>'; ?>
 		  echo '<td>' .  $data['note']  . '</td>';
 		  echo '<td>' . esc_html( $data['timestamp'] ) . '</td>';
 		  echo '</tr>';
-	  }
 	}
     echo '</tbody></table></div>';
 }
+
 //append log entry
 function engagifii_write_activity_log_entry( $entry ) {
 	// Validate entry structure
 	if ( ! is_array( $entry ) || empty( $entry['timestamp'] ) || empty( $entry['activity_type'] ) ) {
 		return;
 	}
-    $upload_dir = wp_upload_dir(); // Gets wp-content/uploads path
+    $upload_dir = wp_upload_dir();
     $log_dir    = trailingslashit($upload_dir['basedir']) . 'engagifii-activity/';
     $log_file   = $log_dir . 'activity.log';
 	// Append entry
 	$entry_line = json_encode( $entry ) . "\n";
 	file_put_contents( $log_file, $entry_line, FILE_APPEND );
+	// ==== 2. Insert into CUSTOM TABLE ====
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'engagifii_activity_log';
+	$entry['log_meta']['ip_address'] = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+	$data = [
+		'user_id'       => isset( $entry['user_id'] ) ? intval( $entry['user_id'] ) : 0,
+		'activity_type' => sanitize_text_field( $entry['activity_type'] ),
+		'created_at'    => date( 'Y-m-d H:i:s', intval( $entry['timestamp'] ) ),
+		'post_id'       => isset( $entry['post_id'] ) ? intval( $entry['post_id'] ) : null,
+		'hub_id'        => isset( $entry['hub_id'] ) ? intval( $entry['hub_id'] ) : null,
+		'log_meta'      => maybe_serialize( $entry['log_meta'] ),
+	];
+
+	$wpdb->insert( $table_name, $data );
 }
 
 //join group log
@@ -311,11 +337,8 @@ function engagifii_log_group_join( $group_id, $user_id ) {
         'timestamp'      => current_time( 'timestamp' ),
         'activity_type'  => 'joined_hub',
         'user_id'        => $user_id,
-        'log_meta'       => [
-            'hub_id' => $group_id,
-        ]
+        'hub_id' => $group_id,
     ];
-
    	engagifii_write_activity_log_entry( $entry );
 }
 //create group log
@@ -334,9 +357,7 @@ function engagifii_log_group_created_once( $group_id, $group ) {
 		'timestamp'     => current_time( 'timestamp' ),
 		'activity_type' => 'created_hub',
 		'user_id'       => $group->creator_id,
-		'log_meta'      => [
-			'hub_id' => $group_id,
-		],
+		'hub_id' => $group_id,
 	];
 	engagifii_write_activity_log_entry( $entry );
 }
@@ -347,10 +368,9 @@ function engagifii_log_user_created( $user_id ) {
 		'activity_type' => 'member_registered',
 		'user_id'       => $user_id,
 		'log_meta'      => [
-			'note' => 'Member Profile Created (user_register)',
+			'note' => 'user_register',
 		],
 	];
-
 	engagifii_write_activity_log_entry( $entry );
 }
 //new member registered via SSO
@@ -360,10 +380,9 @@ function engagifii_log_user_created_sso( $user_id ) {
 		'activity_type' => 'member_registered',
 		'user_id'       => $user_id,
 		'log_meta'      => [
-			'note' => 'Member Profile Created (SSO)',
+			'note' => 'SSO',
 		],
 	];
-
 	engagifii_write_activity_log_entry( $entry );
 }
 //member logged in 
@@ -373,7 +392,7 @@ function engagifii_log_member_login($user_login, $user) {
         'activity_type' => 'member_login',
         'user_id'       => $user->ID,
 		'log_meta'      => [
-			'note' => 'Member logged in successfully (wp_login)',
+			'note' => 'wp_login',
 		],
     ];
 	engagifii_write_activity_log_entry( $entry );
@@ -385,7 +404,7 @@ function engagifii_log_member_login_sso($user_id) {
         'activity_type' => 'member_login',
         'user_id'       => $user_id,
 		'log_meta'      => [
-			'note' => 'Member logged in successfully (SSO)',
+			'note' => 'SSO',
 		],
     ];
 	engagifii_write_activity_log_entry( $entry );
@@ -400,8 +419,8 @@ function engagifii_log_member_logout() {
         'activity_type' => 'member_logout',
         'user_id'       => $user_id,
 		'log_meta'      => [
-			'note' => 'Member logged out successfully',
-		],
+                'note' => 'Member Logged out',
+            ],
     ];
 
 	engagifii_write_activity_log_entry( $entry );
@@ -423,14 +442,12 @@ function engagifii_log_status_post($activity) {
     // Timeline update (not in group)
     if (empty($activity->item_id) && $activity->component === 'activity') {
         $entry['activity_type'] = 'posted_status';
-        $entry['log_meta'] = ['post_id' => $post_id];
+        $entry['post_id'] = $post_id;
     }
     // Group update
     if (!empty($activity->item_id) && $activity->component === 'groups') {
         $entry['activity_type'] = 'posted_in_group';
-        $entry['log_meta'] = [
-            'post_id'  => $post_id,
-        ];
+        $entry['post_id'] = $post_id;
     }
         engagifii_write_activity_log_entry($entry);
 }
@@ -491,9 +508,9 @@ function engagifii_log_reaction_ajax() {
         'timestamp'     => current_time('timestamp'),
         'activity_type' => 'reacted_post',
         'user_id'       => $user_id,
+        'post_id'       => $activity_id,
         'log_meta'      => [
             'reaction_id' => $reaction_id,
-            'post_id'   => $activity_id,
         ],
     ];
 

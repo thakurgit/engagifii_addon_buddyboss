@@ -113,7 +113,7 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 		}
 		
 		private function init_hooks() {		
-		 add_action('admin_menu',array($this,'engagifii_bb_add_admin_menu'), 10);			  
+		 add_action('admin_menu',array($this,'engagifii_bb_add_admin_menu'), 10);	
 		}
 
 		/**
@@ -199,6 +199,55 @@ if ( ! class_exists( 'engagifii_BB_Platform_Addon' ) ) {
 	}
 
 	add_action( 'plugins_loaded', 'engagifii_BB_Platform_init', 9 );
+	register_activation_hook( __FILE__, 'engagifii_create_activity_log_table' );
+
+	function engagifii_create_activity_log_table() {
+		global $wpdb;
 	
+		$table_name = $wpdb->prefix . 'engagifii_activity_log';
+		$charset_collate = $wpdb->get_charset_collate();
+	
+		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+	
+		$sql = "CREATE TABLE $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id BIGINT(20) UNSIGNED NOT NULL,
+        activity_type VARCHAR(100) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        log_meta LONGTEXT DEFAULT NULL,
+        post_id BIGINT(20) DEFAULT NULL,
+        hub_id BIGINT(20) DEFAULT NULL,
+        PRIMARY KEY  (id),
+        KEY user_id (user_id),
+        KEY activity_type (activity_type),
+        KEY created_at (created_at),
+        KEY hub_id (hub_id),
+        KEY post_id (post_id)
+    ) $charset_collate;";
+	
+		dbDelta( $sql );
+		// Check if this is the first insert
+    $already_initialized = $wpdb->get_var( 
+        "SELECT COUNT(*) FROM $table_name WHERE activity_type = 'log_initialized'" 
+    );
+
+    if ( ! $already_initialized ) {
+        $wpdb->insert(
+            $table_name,
+            [
+                'user_id'       => get_current_user_id(),
+                'activity_type' => 'log_initialized',
+                'log_meta'      => maybe_serialize([
+                    'note' => 'Activity log initialized',
+                    'ip'   => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                ]),
+                'created_at'    => current_time('mysql'),
+            ],
+            [
+                '%d', '%s', '%s', '%s'
+            ]
+        );
+    }
+	}
 
 }
