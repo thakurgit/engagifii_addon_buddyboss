@@ -223,13 +223,14 @@ $start = new DateTime('-12 months'); // Default: 12 months ago
 if ( $oldest_date_str ) {
     try {
         $first_log_time = new DateTime( $oldest_date_str );
-        $start = $first_log_time->modify('first day of this month');
+        $start = $first_log_time->modify('first day of this month')->setTime(0, 0, 0);;
     } catch ( Exception $e ) {
         // fallback if date is invalid
     }
 }
-$now = new DateTime('first day of this month');
-$period = new DatePeriod($start, new DateInterval('P1M'), $now);
+$end = new DateTime();
+$end->modify('first day of next month')->setTime(0, 0, 0);
+$period = new DatePeriod($start, new DateInterval('P1M'), $end);
 foreach ($period as $date) {
     $val = $date->format('Ym');
     $label = $date->format('F Y');
