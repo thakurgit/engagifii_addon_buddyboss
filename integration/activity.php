@@ -178,7 +178,7 @@ $activity_types = engagifii_get_activity_types();
 echo '<div class="wrap"><h1 class="wp-heading-inline">Activity Log';
 $has_filter = !empty($_GET['member_id']) || !empty($_GET['activity_type']) || !empty($_GET['activity_date']);
 if ( $has_filter ) {
-    echo '<span class="subtitle">Filtered results for';
+    echo '<span class="subtitle">Filtered results for <span class="filter-log-params">';
     $search_parts = [];
     if ( !empty($_GET['member_id']) ) {
         $search_parts[] = 'Member: <strong>' . esc_html(($user = get_user_by('ID', $_GET['member_id']))->display_name).'</strong>';
@@ -193,7 +193,7 @@ if ( $has_filter ) {
             $search_parts[] = 'Month: <b>' . $date_obj->format('F Y').'</b>';
         }
     }
-    echo ' "' . implode(', ', $search_parts) . '"</span>';
+    echo ' "' . implode(', ', $search_parts) . '"</span></span>';
 }
 
 echo '</h1>';
@@ -218,8 +218,6 @@ foreach ($activity_types as $value => $label) {
 echo '</select> ';
 
 // Date fields
-echo '<label for="activity_date" class="screen-reader-text">Filter by month</label>';
-echo '<select name="activity_date"><option value="">All Dates</option>';
 $oldest_date_str = $wpdb->get_var( "SELECT MIN(created_at) FROM $table_name" );
 $start = new DateTime('-12 months'); // Default: 12 months ago
 if ( $oldest_date_str ) {
@@ -231,8 +229,7 @@ if ( $oldest_date_str ) {
     }
 }
 $now = new DateTime('first day of this month');
-$end = (clone $now)->modify('first day of this month');
-$period = new DatePeriod($start, new DateInterval('P1M'), $end);
+$period = new DatePeriod($start, new DateInterval('P1M'), $now);
 foreach ($period as $date) {
     $val = $date->format('Ym');
     $label = $date->format('F Y');
@@ -243,6 +240,8 @@ foreach ($period as $date) {
     ];
 }
 $months = array_reverse($months);
+echo '<label for="activity_date" class="screen-reader-text">Filter by month</label>';
+echo '<select name="activity_date"><option value="">All Dates</option>';
 foreach ($months as $month) {
     echo "<option value='{$month['value']}' {$month['selected']}>{$month['label']}</option>";
 }
@@ -268,16 +267,20 @@ if ($total_pages > 1) {
 
 echo '</div>'; ?>
 <div class="activity-modal">
-<button class="button button-outline-primary" class="clear-log"><span class="dashicons dashicons-trash"></span>Clear Log</button>
-<form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
-    <input type="hidden" name="action" value="engagifii_export_activity_csv">
-    <input type="hidden" name="member_id" value="<?php echo esc_attr($_GET['member_id'] ?? ''); ?>">
-    <input type="hidden" name="activity_type" value="<?php echo esc_attr($_GET['activity_type'] ?? ''); ?>">
-    <input type="hidden" name="activity_date" value="<?php echo esc_attr($_GET['activity_date'] ?? ''); ?>">
-    <button type="submit" class="button button-primary">
-        <span class="dashicons dashicons-media-spreadsheet"></span> Export CSV
-    </button>
-</form></div>
+    <form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
+        <input type="hidden" name="member_id" value="<?php echo esc_attr($_GET['member_id'] ?? ''); ?>">
+        <input type="hidden" name="activity_type" value="<?php echo esc_attr($_GET['activity_type'] ?? ''); ?>">
+        <input type="hidden" name="activity_date" value="<?php echo esc_attr($_GET['activity_date'] ?? ''); ?>">
+
+        <button type="submit" name="action" id="delete-log-btn" value="engagifii_delete_activity_logs" class="button button-outline-primary">
+            <span class="dashicons dashicons-trash"></span> Clear Logs
+        </button>
+        <button type="submit" name="action" value="engagifii_export_activity_csv" class="button button-primary">
+            <span class="dashicons dashicons-media-spreadsheet"></span> Export CSV
+        </button>
+
+    </form>
+</div>
 <br class="clear"></div>
 <?php
 	if (empty($lines)) {
@@ -518,19 +521,35 @@ function engagifii_log_reaction_ajax() {
 }
 //export CSV
 function engagifii_export_activity_csv() {
-    $upload_dir = wp_upload_dir(); // Gets wp-content/uploads path
-    $log_dir    = trailingslashit($upload_dir['basedir']) . 'engagifii-activity/';
-    $log_file   = $log_dir . 'activity.log';
-    if ( ! file_exists($log_file) ) {
-        wp_send_json_error('Activity Log file not found.');
-    }
+    global $wpdb;
+	$table_name = $wpdb->prefix . 'engagifii_activity_log';
+// Get filter values
+$selected_member    = isset($_POST['member_id']) ? intval($_POST['member_id']) : null;
+$activity_type  = isset($_POST['activity_type']) ? sanitize_text_field($_POST['activity_type']) : null;
+$activity_date   = isset($_POST['activity_date']) ? $_POST['activity_date'] : null;
+$params = [];
+$data_sql  = "SELECT * FROM {$table_name} WHERE 1=1";
+if ( $selected_member ) {
+    $data_sql  .= " AND user_id = %d";
+    $params[] = $selected_member;
+}
+if ( $activity_type ) {
+    $data_sql  .= " AND activity_type = %s";
+    $params[] = $activity_type;
+}
+if ( $activity_date && preg_match( '/^\d{6}$/', $activity_date ) ) {
+    $year = substr( $activity_date, 0, 4 );
+    $month = substr( $activity_date, 4, 2 );
+    $data_sql .= " AND YEAR(created_at) = %d AND MONTH(created_at) = %d";
+    $params[] = intval($year);
+    $params[] = intval($month);
+}
+$data_sql .= " ORDER BY created_at DESC";
+$data_query  = $wpdb->prepare($data_sql, ...$params);
+$lines     = $wpdb->get_results($data_query);
 	if ( ob_get_length() ) {
         ob_end_clean();
     }
-// Get filter values
-$selected_member    = isset($_POST['member_id']) ? intval($_POST['member_id']) : '';
-$activity_type  = isset($_POST['activity_type']) ? sanitize_text_field($_POST['activity_type']) : '';
-$activity_date          = isset($_POST['activity_date']) ? $_POST['activity_date'] : '';
 	$site_title = sanitize_title( get_bloginfo('name') ); 
 	$current_time = current_time( 'timestamp' ); 
 	$timestamp = date( 'dmyHi', $current_time );
@@ -541,18 +560,8 @@ $activity_date          = isset($_POST['activity_date']) ? $_POST['activity_date
     header('Exires: 0');
     $output = fopen('php://output', 'w');
     fputcsv($output, ['Member Name', 'Activity Type', 'Activity Detail', 'Date']);
-    $lines = file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 	$activity_types = engagifii_get_activity_types();
-     foreach (array_reverse($lines) as $line) {
-        $entry = json_decode( $line, true );
-		if ($selected_member && $entry['user_id'] != $selected_member) continue;
-		if ($activity_type && $entry['activity_type'] !== $activity_type) continue;
-		if ($activity_date) {
-		  $entry_month = date('Ym', (int) $entry['timestamp']);
-		  if ($entry_month != $activity_date) {
-			  continue;
-		  }
-		}
+     foreach ($lines as $entry) {
 		$data = engagifii_parse_activity_entry( $entry, $activity_types );
 		if ( ! $data ) continue;
 		
@@ -572,3 +581,44 @@ $activity_date          = isset($_POST['activity_date']) ? $_POST['activity_date
     exit;
 }
 add_action( 'admin_post_engagifii_export_activity_csv', 'engagifii_export_activity_csv' );
+//delete logs
+add_action('admin_post_engagifii_delete_activity_logs', 'engagifii_delete_activity_logs');
+function engagifii_delete_activity_logs() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'engagifii_activity_log';
+
+    $where = '1=1';
+    $params = [];
+
+    if ( ! empty($_POST['member_id']) ) {
+        $where .= ' AND user_id = %d';
+        $params[] = intval($_POST['member_id']);
+    }
+   if ( ! empty($_POST['activity_type']) ) {
+    $where .= ' AND activity_type = %s';
+    $params[] = sanitize_text_field($_POST['activity_type']);
+	} else {
+		// If no activity_type filter, prevent deleting 'log_initialized'
+		$where .= " AND activity_type != %s";
+		$params[] = 'log_initialized';
+	}
+    if ( ! empty($_POST['activity_date']) ) {
+        $year  = substr($_POST['activity_date'], 0, 4);
+        $month = substr($_POST['activity_date'], 4, 2);
+        $where .= ' AND YEAR(created_at) = %d AND MONTH(created_at) = %d';
+        $params[] = intval($year);
+        $params[] = intval($month);
+    }
+
+    $sql = "DELETE FROM {$table_name} WHERE $where";
+    $query = $wpdb->prepare($sql, ...$params);
+    $wpdb->query($query);
+
+    wp_redirect( admin_url('admin.php?page=engagifii_activity_log&deleted=1') );
+    exit;
+}
+add_action( 'admin_notices', function() {
+    if ( isset($_GET['deleted']) ) {
+        echo '<div class="notice notice-success is-dismissible"><p>Filtered logs deleted successfully.</p></div>';
+    }
+});

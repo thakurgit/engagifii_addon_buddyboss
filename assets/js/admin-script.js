@@ -102,4 +102,27 @@
 
         $("#user_fields").val(JSON.stringify(fields));
     }
+	//show alert when deleting logs 
+            const del_log_button = document.getElementById('delete-log-btn');
+            const del_log_form = del_log_button.closest('form');
+
+            if (del_log_form && del_log_button) {
+                del_log_button.addEventListener('click', function (e) {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const hasFilters = urlParams.get('member_id') || urlParams.get('activity_type') || urlParams.get('activity_date');
+
+                    if (!hasFilters) {
+                        const confirmAllDelete = confirm('Are you sure you want to delete ALL logs? This action cannot be undone.');
+                        if (!confirmAllDelete) {
+                            e.preventDefault(); 
+                        }
+                    } else {
+                        const confirmDelete = confirm('Delete logs with filter:-'+$('.filter-log-params').text());
+                        if (!confirmDelete) {
+                            e.preventDefault(); 
+                        }
+					}
+                });
+            }
+	
 	});
